@@ -27,6 +27,13 @@ impl StreamTexture {
     }
 }
 
+/// Whether the video opens in a resizable window or covers the whole screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowMode {
+    Windowed,
+    Fullscreen,
+}
+
 pub struct VideoWindow {
     canvas: Canvas<Window>,
     texture_creator: TextureCreator<WindowContext>,
@@ -35,16 +42,19 @@ pub struct VideoWindow {
 }
 
 impl VideoWindow {
-    pub fn open(title: &str) -> Result<Self, String> {
+    pub fn open(title: &str, mode: WindowMode) -> Result<Self, String> {
         let sdl = sdl2::init()?;
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "linear");
-        let window = sdl
-            .video()?
-            .window(title, INITIAL_WINDOW_SIZE.width, INITIAL_WINDOW_SIZE.height)
-            .resizable()
-            .position_centered()
-            .build()
-            .map_err(|error| error.to_string())?;
+        let video = sdl.video()?;
+        let mut builder =
+            video.window(title, INITIAL_WINDOW_SIZE.width, INITIAL_WINDOW_SIZE.height);
+        builder.position_centered();
+        match mode {
+            WindowMode::Windowed => builder.resizable(),
+            // Desktop fullscreen keeps the current display mode, so no mode switch happens.
+            WindowMode::Fullscreen => builder.fullscreen_desktop(),
+        };
+        let window = builder.build().map_err(|error| error.to_string())?;
         let mut canvas = window
             .into_canvas()
             .accelerated()

@@ -49,6 +49,13 @@ device is shown:
 target/release/ndiclient STUDIO
 ```
 
+Add `--fullscreen` to show the video fullscreen instead of in a window:
+```sh
+target/release/ndiclient --fullscreen STUDIO "OBS PGM"
+```
+
+Close the window or press Escape to quit.
+
 The device name is matched ignoring case; the stream name must match exactly.
 If no matching source is discovered within 10 seconds, the error lists the
 sources that were discovered.
@@ -68,7 +75,7 @@ cargo test
 
 *  Right now the receiver requests the highest bandwidth feed available, low bandwidth mode is not supported.
 *  Audio is currently not supported, but will be added before the first stable release.
-*  Fullscreen is not yet supported, and no resolution scaling is provided yet. This will be added before a stable release.
+*  No resolution scaling is provided yet. This will be added before a stable release.
 
 
 ## License

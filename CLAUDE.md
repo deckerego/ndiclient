@@ -1,11 +1,11 @@
 # ndiclient
 
 Proof-of-concept command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
-`ndiclient <device-name> [stream-name]` uses NDI discovery to find the source
-named `DEVICE (Stream)` (or the first stream on that device) and shows its
-video in a desktop window. `ndiclient` without arguments lists the sources it
-discovers. Video only;
-audio is deliberately out of scope for now.
+`ndiclient [--fullscreen] <device-name> [stream-name]` uses NDI discovery to
+find the source named `DEVICE (Stream)` (or the first stream on that device)
+and shows its video in a desktop window or fullscreen. `ndiclient` without
+arguments lists the sources it discovers. Video only; audio is deliberately
+out of scope for now.
 
 The proof of concept is complete (2026-10-13); the project is now being evolved
 toward production readiness.
@@ -44,11 +44,16 @@ target/release/ndiclient
 target/release/ndiclient STUDIO "OBS PGM"
 target/release/ndiclient studio.local "OBS PGM"
 target/release/ndiclient STUDIO
+target/release/ndiclient --fullscreen STUDIO "OBS PGM"
 ```
 
 - Without arguments: discovers for 5 s, prints each source's full NDI name
   (one per line, de-duplicated, sorted) and exits 0, also when none are found.
-- Close the window or press Escape to quit.
+- `--fullscreen` (anywhere among the arguments) covers the whole screen
+  instead of opening a 1280x720 resizable window. It is SDL "desktop"
+  fullscreen: the display mode is not changed and the picture is
+  letterboxed. Not valid without a device name.
+- Close the window or press Escape to quit (also in fullscreen).
 - Prints the displayed frame rate every 5 seconds.
 - The source is the one whose full NDI name is `<device-name> (<stream-name>)`.
   The device name matches case-insensitively (it is a host name); the stream
@@ -85,10 +90,11 @@ target/release/ndiclient STUDIO
 ## Architecture
 
 ```
-src/main.rs          argument parsing (Command), wiring, source listing,
-                     main capture/display loop
+src/main.rs          argument parsing (Command, --fullscreen), wiring,
+                     source listing, main capture/display loop
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
-src/display.rs       VideoWindow: SDL2 window, streaming texture, letterboxing
+src/display.rs       VideoWindow / WindowMode: SDL2 window or fullscreen,
+                     streaming texture, letterboxing
 src/frame_rate.rs    FrameRateMeter: periodic fps reporting
 src/stall.rs         StallDetector: "waiting for video" once per stall
 src/ndi/ffi.rs       raw C declarations for the NDI SDK
@@ -126,7 +132,7 @@ Key decisions:
 ## Testing
 
 - `cargo test`: unit tests for argument parsing, source query matching, the
-  frame-rate meter and the stall detector (21 tests).
+  frame-rate meter and the stall detector (27 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
@@ -180,6 +186,10 @@ Key decisions:
   above after 5 s; with the local sender stopped, only the remote one.
 - Optional stream name (2026-10-13): `ndiclient ndidev` connected to the local
   test pattern (~31 fps) and `ndiclient RONINEGO.local` to the remote source.
+- Fullscreen (2026-10-13): `--fullscreen` with the local test pattern filled
+  the 1920x1080 HDMI display (screenshot via `grim`) at ~30 fps. The mouse
+  cursor stays visible. Escape was not tested by injected keypress (no
+  `wtype`/`ydotool` installed); it uses the same event handling as windowed.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -206,5 +216,5 @@ Key decisions:
 
 - Audio (NDI `capture_v3` audio frames → SDL audio queue), likely on its own
   thread or via NDI FrameSync.
-- Fullscreen toggle / kiosk mode.
+- Fullscreen toggle at runtime, hiding the cursor in fullscreen (kiosk mode).
 - Measure with real network sources at 1080p60 and with NDI|HX.
