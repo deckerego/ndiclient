@@ -127,9 +127,8 @@ Key decisions:
 - Cost: ndiclient used about 68% of one core (~125 MB RSS); the sender used
   about 40%. Decoding is NDI's software SpeedHQ decoder on the CPU; display is
   GPU-composited via SDL.
-- Remote source "RONINEGO.LOCAL (Test Patterns)" at 192.168.129.208:5961, over
-  this Pi's Wi-Fi (2026-10-13): **works.** A 1920x1080 UYVY chroma multiburst
-  pattern displays correctly with no code changes.
+- Remote source over this Pi's Wi-Fi (2026-10-13): **works.** A 1920x1080 
+  UYVY chroma multiburst pattern displays correctly with no code changes.
   - First attempt received no video at all (the SDK's `ndi-record` didn't get
     any either). The cause was on the sender side: its firewall was on.
     After the user turned it off, video flowed.
@@ -138,8 +137,8 @@ Key decisions:
     So the fps lines are not printed (the meter only reports when a frame
     arrives after the 5 s interval) and remote throughput is still unmeasured.
     Use a moving source to measure it.
-- Remote live source "RONINEGO.LOCAL (OBS PGM)", 1920x1080 UYVY at 60/1
-  fps progressive, over Wi-Fi (5 GHz, 433 Mbit/s link, -60 dBm), 2026-10-13:
+- Remote live source of 1920x1080 UYVY at 60/1 fps progressive, 
+  over Wi-Fi (5 GHz, 433 Mbit/s link, -60 dBm), 2026-10-13:
   **works; average 42.3 fps displayed** (5 s reports ranged 23.5–50.5) over
   45 s, at about 138% of one core (~1/3 of the Pi 5's 4 cores), ~185 MB RSS,
   SoC at 71 °C.
@@ -151,7 +150,7 @@ Key decisions:
     with what arrives, and SDL display costs only ~2 fps. To separate the
     network from the sender, test over wired Ethernet next.
 - Source selection by name and the waiting message (2026-10-13): verified
-  against RONINEGO by short name, full name and a wrong name (error lists
+  against remote source by short name, full name and a wrong name (error lists
   the host's sources). Also verified against the local sender: stopping it
   prints "Waiting for video..." after 3 s, NDI reconnects automatically when
   it restarts, a second stop prints the message again, and the black window
