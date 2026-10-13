@@ -1,5 +1,5 @@
-//! Proof-of-concept NDI client: shows the video of the NDI source running on
-//! a given IP address (optionally chosen by name) in a desktop window.
+//! NDI client: discovers the NDI source with a given device and stream name
+//! and shows its video in a desktop window.
 
 mod display;
 mod frame_rate;
@@ -7,7 +7,6 @@ mod ndi;
 mod picture;
 mod stall;
 
-use std::net::IpAddr;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -21,7 +20,7 @@ const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
 const CAPTURE_TIMEOUT: Duration = Duration::from_millis(100);
 const FRAME_RATE_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 const STALL_THRESHOLD: Duration = Duration::from_secs(3);
-const USAGE: &str = "usage: ndiclient <ip-address> [source-name]";
+const USAGE: &str = "usage: ndiclient <device-name> <stream-name>";
 
 fn main() -> ExitCode {
     match run() {
@@ -49,16 +48,11 @@ fn run() -> Result<(), String> {
 fn parse_arguments() -> Result<SourceQuery, String> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     match arguments.as_slice() {
-        [host] => Ok(SourceQuery::any_on(parse_host(host)?)),
-        [host, source_name] => Ok(SourceQuery::named(parse_host(host)?, source_name.clone())),
+        [device_name, stream_name] => {
+            Ok(SourceQuery::new(device_name.clone(), stream_name.clone()))
+        }
         _ => Err(USAGE.to_string()),
     }
-}
-
-fn parse_host(argument: &str) -> Result<IpAddr, String> {
-    argument
-        .parse()
-        .map_err(|_| format!("\"{argument}\" is not an IP address\n{USAGE}"))
 }
 
 fn stream_video(receiver: &Receiver, window: &mut VideoWindow) -> Result<(), String> {

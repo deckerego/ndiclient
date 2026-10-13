@@ -48,18 +48,12 @@ impl SourceDescriptor {
     }
 
     fn satisfies(&self, query: &SourceQuery) -> bool {
-        query.matches(&self.name(), &self.url_address.to_string_lossy())
-    }
-
-    fn is_on_host_of(&self, query: &SourceQuery) -> bool {
-        query.is_on_host(&self.url_address.to_string_lossy())
+        query.matches(&self.name())
     }
 }
 
-/// Discovers the NDI source described by a `SourceQuery`.
-///
-/// The host is queried directly (unicast) in addition to mDNS, so discovery
-/// works even on networks that block multicast.
+/// Discovers the NDI source described by a `SourceQuery` using NDI's own
+/// discovery (mDNS, or a discovery server if NDI is configured to use one).
 pub struct SourceFinder<'runtime> {
     instance: ffi::FindInstance,
     query: SourceQuery,
@@ -68,14 +62,12 @@ pub struct SourceFinder<'runtime> {
 
 impl<'runtime> SourceFinder<'runtime> {
     pub fn new(runtime: &'runtime NdiRuntime, query: SourceQuery) -> Result<Self, String> {
-        let extra_ips = CString::new(query.host().to_string()).expect("IP address contains no NUL");
         let settings = ffi::FindCreate {
             show_local_sources: true,
             groups: ptr::null(),
-            extra_ips: extra_ips.as_ptr(),
+            extra_ips: ptr::null(),
         };
-        // SAFETY: `settings` and the strings it points to outlive the call;
-        // NDI copies them during creation.
+        // SAFETY: `settings` outlives the call; null strings select NDI's defaults.
         let instance = unsafe { ffi::NDIlib_find_create_v2(&settings) };
         if instance.is_null() {
             return Err("NDI failed to create a source finder".to_string());
@@ -90,10 +82,10 @@ impl<'runtime> SourceFinder<'runtime> {
     /// Waits up to `timeout` for the first source matching the query.
     pub fn find_source(&self, timeout: Duration) -> Result<SourceDescriptor, String> {
         let deadline = Instant::now() + timeout;
-        let mut sources_on_host = Vec::new();
+        let mut seen_names = Vec::new();
         while Instant::now() < deadline {
             let sources = self.current_sources();
-            sources_on_host = self.names_on_host(&sources);
+            seen_names = unique_names(&sources);
             if let Some(source) = sources
                 .into_iter()
                 .find(|source| source.satisfies(&self.query))
@@ -102,28 +94,15 @@ impl<'runtime> SourceFinder<'runtime> {
             }
             self.wait_for_change(deadline);
         }
-        Err(self.not_found_message(timeout, &sources_on_host))
+        Err(self.not_found_message(timeout, &seen_names))
     }
 
-    /// NDI can list one source twice (mDNS and direct query), hence the set.
-    fn names_on_host(&self, sources: &[SourceDescriptor]) -> Vec<String> {
-        let unique_names: BTreeSet<String> = sources
-            .iter()
-            .filter(|source| source.is_on_host_of(&self.query))
-            .map(SourceDescriptor::name)
-            .collect();
-        unique_names.into_iter().collect()
-    }
-
-    fn not_found_message(&self, timeout: Duration, sources_on_host: &[String]) -> String {
+    fn not_found_message(&self, timeout: Duration, seen_names: &[String]) -> String {
         let not_found = format!("No {} found within {timeout:?}", self.query);
-        if sources_on_host.is_empty() {
-            return not_found;
+        if seen_names.is_empty() {
+            return format!("{not_found}. No NDI sources were discovered");
         }
-        format!(
-            "{not_found}. Sources on that host: {}",
-            sources_on_host.join(", ")
-        )
+        format!("{not_found}. Discovered sources: {}", seen_names.join(", "))
     }
 
     fn wait_for_change(&self, deadline: Instant) {
@@ -151,6 +130,13 @@ impl<'runtime> SourceFinder<'runtime> {
             .filter_map(|raw| unsafe { SourceDescriptor::copy_from(raw) })
             .collect()
     }
+}
+
+/// De-duplicated and sorted, because NDI can list one source more than once
+/// (e.g. once per network interface).
+fn unique_names(sources: &[SourceDescriptor]) -> Vec<String> {
+    let names: BTreeSet<String> = sources.iter().map(SourceDescriptor::name).collect();
+    names.into_iter().collect()
 }
 
 impl Drop for SourceFinder<'_> {

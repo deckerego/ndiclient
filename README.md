@@ -13,8 +13,8 @@ This currently is a bootstrap PoC written with Claude Code,
 goal is to make this a hybrid human/LLM maintained codebase with
 an emphasis on maintainability and simplicity.
 
-Currently both audio and source discovery is not supported -
-those will be coming later.
+Sources are found with NDI discovery. Audio is not supported yet -
+that will be coming later.
 
 
 ## Building
@@ -32,12 +32,15 @@ cargo build --release
 
 ## Usage
 
-Since discovery is not yet enabled I just am using an IP address for the source
-and the source name as arguments:
+Pass the NDI device name and stream name of the source. NDI lists sources as
+`DEVICE (Stream)`, so for the source `STUDIO (OBS PGM)`:
 ```sh
-target/release/ndiclient 192.168.1.20
-target/release/ndiclient 192.168.1.20 "OBS PGM"
+target/release/ndiclient STUDIO "OBS PGM"
 ```
+
+The device name is matched ignoring case; the stream name must match exactly.
+If no matching source is discovered within 10 seconds, the error lists the
+sources that were discovered.
 
 
 ## Testing
