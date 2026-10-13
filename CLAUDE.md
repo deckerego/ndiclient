@@ -114,6 +114,9 @@ Key decisions:
 
 - `cargo test`: unit tests for source query matching, the frame-rate meter
   and the stall detector (16 tests).
+- CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
+  into `main`. The NDI SDK isn't available there, so it links an empty stub
+  `libndi.so`. This works only because unit tests never call NDI functions.
 - End-to-end: `tools/build_test_pattern_sender.sh` builds
   `target/test_pattern_sender` (1080p30 UYVY color bars with a moving white
   bar, source name "ndiclient test pattern"). Run it, then
