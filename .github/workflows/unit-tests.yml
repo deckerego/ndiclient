@@ -1,0 +1,31 @@
+name: Unit tests
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  test:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    env:
+      # The NDI SDK is proprietary and not available in CI. The unit tests
+      # never call into NDI, so an empty stub libndi satisfies the linker.
+      NDI_SDK_DIR: ${{ github.workspace }}/ndi-stub
+      NDI_STUB_LIB_DIR: ${{ github.workspace }}/ndi-stub/lib/aarch64-rpi4-linux-gnueabi
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SDL2
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build stub NDI library
+        run: |
+          mkdir -p "$NDI_STUB_LIB_DIR"
+          echo "" | gcc -shared -x c - -o "$NDI_STUB_LIB_DIR/libndi.so"
+
+      - name: Run unit tests
+        run: cargo test
