@@ -32,8 +32,13 @@ cargo build --release
 
 ## Usage
 
-Pass the NDI device name and stream name of the source. NDI lists sources as
-`DEVICE (Stream)`, so for the source `STUDIO (OBS PGM)`:
+Run without arguments to list the NDI sources discovered on the network:
+```sh
+target/release/ndiclient
+```
+
+Then pass the NDI device name and stream name of a source. NDI lists sources
+as `DEVICE (Stream)`, so for the source `STUDIO (OBS PGM)`:
 ```sh
 target/release/ndiclient STUDIO "OBS PGM"
 ```

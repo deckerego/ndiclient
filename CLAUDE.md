@@ -2,7 +2,8 @@
 
 Proof-of-concept command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
 `ndiclient <device-name> <stream-name>` uses NDI discovery to find the source
-named `DEVICE (Stream)` and shows its video in a desktop window. Video only;
+named `DEVICE (Stream)` and shows its video in a desktop window. `ndiclient`
+without arguments lists the sources it discovers. Video only;
 audio is deliberately out of scope for now.
 
 The proof of concept is complete (2026-10-13); the project is now being evolved
@@ -38,10 +39,13 @@ Follow Uncle Bob's "Clean Code" rules. In short:
 
 ```sh
 cargo build --release
+target/release/ndiclient
 target/release/ndiclient STUDIO "OBS PGM"
 target/release/ndiclient studio.local "OBS PGM"
 ```
 
+- Without arguments: discovers for 5 s, prints each source's full NDI name
+  (one per line, de-duplicated, sorted) and exits 0, also when none are found.
 - Close the window or press Escape to quit.
 - Prints the displayed frame rate every 5 seconds.
 - The source is the one whose full NDI name is `<device-name> (<stream-name>)`.
@@ -78,7 +82,8 @@ target/release/ndiclient studio.local "OBS PGM"
 ## Architecture
 
 ```
-src/main.rs          argument parsing, wiring, main capture/display loop
+src/main.rs          argument parsing (Command), wiring, source listing,
+                     main capture/display loop
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
 src/display.rs       VideoWindow: SDL2 window, streaming texture, letterboxing
 src/frame_rate.rs    FrameRateMeter: periodic fps reporting
@@ -86,7 +91,7 @@ src/stall.rs         StallDetector: "waiting for video" once per stall
 src/ndi/ffi.rs       raw C declarations for the NDI SDK
 src/ndi/runtime.rs   NdiRuntime: RAII for NDIlib_initialize/NDIlib_destroy
 src/ndi/query.rs     SourceQuery: device + stream name, matching rules
-src/ndi/finder.rs    SourceFinder / SourceDescriptor: find the source matching a query
+src/ndi/finder.rs    SourceFinder / SourceDescriptor: list sources, find one matching a query
 src/ndi/receiver.rs  Receiver / VideoFrame / Capture: receive video frames
 tools/               test-pattern NDI sender used for development (C)
 ```
@@ -115,8 +120,8 @@ Key decisions:
 
 ## Testing
 
-- `cargo test`: unit tests for source query matching, the frame-rate meter
-  and the stall detector (14 tests).
+- `cargo test`: unit tests for argument parsing, source query matching, the
+  frame-rate meter and the stall detector (18 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
@@ -166,6 +171,8 @@ Key decisions:
   in lowercase (`ndidev`) and displayed at ~30 fps; the remote
   `RONINEGO.LOCAL (Test Patterns)` was found and connected. A wrong stream
   name lists all discovered sources.
+- Listing (2026-10-13): `ndiclient` with no arguments printed both sources
+  above after 5 s; with the local sender stopped, only the remote one.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -179,7 +186,7 @@ Key decisions:
 - Unsupported pixel formats (e.g. P216/PA16, which we never request) end the
   program with an error.
 - Hardcoded: SDK path default, 1280x720 initial window, 10 s discovery
-  timeout, 5 s fps report interval, 3 s stall threshold, highest bandwidth.
+  timeout, 5 s listing duration, 5 s fps report interval, 3 s stall threshold, highest bandwidth.
 - Discovery relies on mDNS (or an NDI discovery server). Networks that block
   multicast need a discovery server; there is no IP fallback any more.
 - Stream name matching is exact and case-sensitive; no partial or wildcard

@@ -52,16 +52,15 @@ impl SourceDescriptor {
     }
 }
 
-/// Discovers the NDI source described by a `SourceQuery` using NDI's own
-/// discovery (mDNS, or a discovery server if NDI is configured to use one).
+/// Discovers NDI sources using NDI's own discovery (mDNS, or a discovery
+/// server if NDI is configured to use one).
 pub struct SourceFinder<'runtime> {
     instance: ffi::FindInstance,
-    query: SourceQuery,
     _runtime: &'runtime NdiRuntime,
 }
 
 impl<'runtime> SourceFinder<'runtime> {
-    pub fn new(runtime: &'runtime NdiRuntime, query: SourceQuery) -> Result<Self, String> {
+    pub fn new(runtime: &'runtime NdiRuntime) -> Result<Self, String> {
         let settings = ffi::FindCreate {
             show_local_sources: true,
             groups: ptr::null(),
@@ -74,35 +73,37 @@ impl<'runtime> SourceFinder<'runtime> {
         }
         Ok(Self {
             instance,
-            query,
             _runtime: runtime,
         })
     }
 
-    /// Waits up to `timeout` for the first source matching the query.
-    pub fn find_source(&self, timeout: Duration) -> Result<SourceDescriptor, String> {
+    /// Waits up to `timeout` for the first source matching `query`.
+    pub fn find_source(
+        &self,
+        query: &SourceQuery,
+        timeout: Duration,
+    ) -> Result<SourceDescriptor, String> {
         let deadline = Instant::now() + timeout;
         let mut seen_names = Vec::new();
         while Instant::now() < deadline {
             let sources = self.current_sources();
             seen_names = unique_names(&sources);
-            if let Some(source) = sources
-                .into_iter()
-                .find(|source| source.satisfies(&self.query))
-            {
+            if let Some(source) = sources.into_iter().find(|source| source.satisfies(query)) {
                 return Ok(source);
             }
             self.wait_for_change(deadline);
         }
-        Err(self.not_found_message(timeout, &seen_names))
+        Err(not_found_message(query, timeout, &seen_names))
     }
 
-    fn not_found_message(&self, timeout: Duration, seen_names: &[String]) -> String {
-        let not_found = format!("No {} found within {timeout:?}", self.query);
-        if seen_names.is_empty() {
-            return format!("{not_found}. No NDI sources were discovered");
+    /// Always waits the full `duration`: NDI cannot tell when every source on
+    /// the network has answered.
+    pub fn source_names_after(&self, duration: Duration) -> Vec<String> {
+        let deadline = Instant::now() + duration;
+        while Instant::now() < deadline {
+            self.wait_for_change(deadline);
         }
-        format!("{not_found}. Discovered sources: {}", seen_names.join(", "))
+        unique_names(&self.current_sources())
     }
 
     fn wait_for_change(&self, deadline: Instant) {
@@ -130,6 +131,14 @@ impl<'runtime> SourceFinder<'runtime> {
             .filter_map(|raw| unsafe { SourceDescriptor::copy_from(raw) })
             .collect()
     }
+}
+
+fn not_found_message(query: &SourceQuery, timeout: Duration, seen_names: &[String]) -> String {
+    let not_found = format!("No {query} found within {timeout:?}");
+    if seen_names.is_empty() {
+        return format!("{not_found}. No NDI sources were discovered");
+    }
+    format!("{not_found}. Discovered sources: {}", seen_names.join(", "))
 }
 
 /// De-duplicated and sorted, because NDI can list one source more than once
