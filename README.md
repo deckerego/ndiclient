@@ -21,6 +21,9 @@ those will be coming later.
 
 Currently `ndiclient` requires `libsdl2-dev` and the NDI SDK available at
 [https://ndi.video/for-developers/ndi-sdk/](https://ndi.video/for-developers/ndi-sdk/).
+The environment var `NDI_SDK_DIR` can be set to the path of the NDI SDK,
+it defaults to `/home/pi/NDI SDK for Linux` otherwise.
+
 After those are installed the build should obey Cargo:
 ```sh
 cargo build --release
@@ -37,11 +40,21 @@ target/release/ndiclient 192.168.1.20 "OBS PGM"
 ```
 
 
-## Future State
+## Testing
 
-Goal is to have this operate as an NDI video monitor without a running desktop environment,
-operating full screen and scaling to the specified resolution.
-Will primarily be testing audio over HDMI out, but any audio engine destination should work.
+A test pattern sender is available in the `tools/` directory for local integration testing.
+
+Unit testing can be performed using:
+```sh
+cargo test
+```
+
+
+## Limitations
+
+*  Right now the receiver requests the highest bandwidth feed available, low bandwidth mode is not supported.
+*  Audio is currently not supported, but will be added before the first stable release.
+*  Fullscreen is not yet supported, and no resolution scaling is provided yet. This will be added before a stable release.
 
 
 ## License
