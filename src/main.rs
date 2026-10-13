@@ -1,5 +1,6 @@
-//! Proof-of-concept NDI client: shows the video of the NDI source running on
-//! a given IP address (optionally chosen by name) in a desktop window.
+//! NDI client: discovers the NDI source with a given device name (and
+//! optionally stream name) and shows its video in a desktop window. Without
+//! arguments it lists the NDI sources it discovers.
 
 mod display;
 mod frame_rate;
@@ -7,7 +8,6 @@ mod ndi;
 mod picture;
 mod stall;
 
-use std::net::IpAddr;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -17,11 +17,19 @@ use ndi::{Capture, NdiRuntime, Receiver, SourceFinder, SourceQuery};
 use stall::StallDetector;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
+/// Long enough for sources on a typical LAN to answer mDNS discovery.
+const LISTING_DURATION: Duration = Duration::from_secs(5);
 /// Short enough to keep the window responsive while no frames arrive.
 const CAPTURE_TIMEOUT: Duration = Duration::from_millis(100);
 const FRAME_RATE_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 const STALL_THRESHOLD: Duration = Duration::from_secs(3);
-const USAGE: &str = "usage: ndiclient <ip-address> [source-name]";
+const USAGE: &str = "usage: ndiclient <device-name> [stream-name]
+       ndiclient                              (list discovered sources)";
+
+enum Command {
+    ListSources,
+    ShowVideo(SourceQuery),
+}
 
 fn main() -> ExitCode {
     match run() {
@@ -34,31 +42,56 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let query = parse_arguments()?;
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let command = parse_arguments(&arguments)?;
     let runtime = NdiRuntime::initialize()?;
-
-    println!("Searching for {query}...");
-    let source = SourceFinder::new(&runtime, query)?.find_source(DISCOVERY_TIMEOUT)?;
-    println!("Connecting to \"{}\"", source.name());
-
-    let receiver = Receiver::connect(&runtime, &source)?;
-    let mut window = VideoWindow::open(&source.name())?;
-    stream_video(&receiver, &mut window)
+    let finder = SourceFinder::new(&runtime)?;
+    match command {
+        Command::ListSources => {
+            list_sources(&finder);
+            Ok(())
+        }
+        Command::ShowVideo(query) => show_video(&runtime, &finder, &query),
+    }
 }
 
-fn parse_arguments() -> Result<SourceQuery, String> {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
-    match arguments.as_slice() {
-        [host] => Ok(SourceQuery::any_on(parse_host(host)?)),
-        [host, source_name] => Ok(SourceQuery::named(parse_host(host)?, source_name.clone())),
+fn parse_arguments(arguments: &[String]) -> Result<Command, String> {
+    match arguments {
+        [] => Ok(Command::ListSources),
+        [device_name] => Ok(Command::ShowVideo(SourceQuery::any_stream_on(
+            device_name.clone(),
+        ))),
+        [device_name, stream_name] => Ok(Command::ShowVideo(SourceQuery::named_stream_on(
+            device_name.clone(),
+            stream_name.clone(),
+        ))),
         _ => Err(USAGE.to_string()),
     }
 }
 
-fn parse_host(argument: &str) -> Result<IpAddr, String> {
-    argument
-        .parse()
-        .map_err(|_| format!("\"{argument}\" is not an IP address\n{USAGE}"))
+fn list_sources(finder: &SourceFinder) {
+    println!("Discovering NDI sources for {LISTING_DURATION:?}...");
+    let names = finder.source_names_after(LISTING_DURATION);
+    if names.is_empty() {
+        println!("No NDI sources were discovered");
+    }
+    for name in names {
+        println!("{name}");
+    }
+}
+
+fn show_video(
+    runtime: &NdiRuntime,
+    finder: &SourceFinder,
+    query: &SourceQuery,
+) -> Result<(), String> {
+    println!("Searching for {query}...");
+    let source = finder.find_source(query, DISCOVERY_TIMEOUT)?;
+    println!("Connecting to \"{}\"", source.name());
+
+    let receiver = Receiver::connect(runtime, &source)?;
+    let mut window = VideoWindow::open(&source.name())?;
+    stream_video(&receiver, &mut window)
 }
 
 fn stream_video(receiver: &Receiver, window: &mut VideoWindow) -> Result<(), String> {
@@ -96,5 +129,37 @@ fn report_frame_rate(frame_rate: &mut FrameRateMeter) {
 fn report_stall(stall: &mut StallDetector) {
     if stall.take_new_stall() {
         println!("Waiting for video...");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn arguments(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn no_arguments_lists_sources() {
+        let command = parse_arguments(&arguments(&[]));
+        assert!(matches!(command, Ok(Command::ListSources)));
+    }
+
+    #[test]
+    fn device_and_stream_names_show_video() {
+        let command = parse_arguments(&arguments(&["STUDIO", "OBS PGM"]));
+        assert!(matches!(command, Ok(Command::ShowVideo(_))));
+    }
+
+    #[test]
+    fn device_name_alone_shows_video() {
+        let command = parse_arguments(&arguments(&["STUDIO"]));
+        assert!(matches!(command, Ok(Command::ShowVideo(_))));
+    }
+
+    #[test]
+    fn extra_argument_is_rejected() {
+        assert!(parse_arguments(&arguments(&["STUDIO", "OBS PGM", "extra"])).is_err());
     }
 }

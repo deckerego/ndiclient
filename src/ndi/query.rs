@@ -1,133 +1,131 @@
 use std::fmt;
-use std::net::{IpAddr, SocketAddr};
 
-/// Which NDI source to connect to: any source on a host, or one by name.
+/// Which NDI source to connect to, named by the two parts of its full NDI
+/// name `DEVICE (Stream)`: any stream on a device, or one stream by name.
 pub struct SourceQuery {
-    host: IpAddr,
-    source_name: Option<String>,
+    device_name: String,
+    stream_name: Option<String>,
 }
 
 impl SourceQuery {
-    pub fn any_on(host: IpAddr) -> Self {
+    pub fn any_stream_on(device_name: String) -> Self {
         Self {
-            host,
-            source_name: None,
+            device_name,
+            stream_name: None,
         }
     }
 
-    /// `source_name` may be the short name (`OBS PGM`) or the full NDI name
-    /// (`MACHINE (OBS PGM)`).
-    pub fn named(host: IpAddr, source_name: String) -> Self {
+    pub fn named_stream_on(device_name: String, stream_name: String) -> Self {
         Self {
-            host,
-            source_name: Some(source_name),
+            device_name,
+            stream_name: Some(stream_name),
         }
     }
 
-    pub fn host(&self) -> IpAddr {
-        self.host
+    /// Device names are host names, so they match case-insensitively; stream
+    /// names must match exactly.
+    pub fn matches(&self, full_name: &str) -> bool {
+        split_full_name(full_name).is_some_and(|(device_name, stream_name)| {
+            device_name.eq_ignore_ascii_case(&self.device_name) && self.matches_stream(stream_name)
+        })
     }
 
-    pub fn matches(&self, full_name: &str, url_address: &str) -> bool {
-        self.is_on_host(url_address) && self.matches_name(full_name)
-    }
-
-    pub fn is_on_host(&self, url_address: &str) -> bool {
-        is_url_hosted_at(url_address, self.host)
-    }
-
-    fn matches_name(&self, full_name: &str) -> bool {
-        self.source_name
+    fn matches_stream(&self, stream_name: &str) -> bool {
+        self.stream_name
             .as_deref()
-            .is_none_or(|wanted| full_name == wanted || short_name_of(full_name) == Some(wanted))
+            .is_none_or(|wanted| stream_name == wanted)
     }
 }
 
 impl fmt::Display for SourceQuery {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        match &self.source_name {
-            Some(name) => write!(formatter, "NDI source \"{name}\" at {}", self.host),
-            None => write!(formatter, "an NDI source at {}", self.host),
+        let device_name = &self.device_name;
+        match &self.stream_name {
+            Some(stream_name) => write!(
+                formatter,
+                "NDI stream \"{stream_name}\" on device \"{device_name}\""
+            ),
+            None => write!(formatter, "an NDI stream on device \"{device_name}\""),
         }
     }
 }
 
-/// NDI URL addresses have the form `<ip>:<port>`.
-fn is_url_hosted_at(url_address: &str, host: IpAddr) -> bool {
-    url_address
-        .parse::<SocketAddr>()
-        .is_ok_and(|address| address.ip() == host)
-}
-
-/// NDI full names have the form `MACHINE (Source Name)`.
-fn short_name_of(full_name: &str) -> Option<&str> {
-    let (_machine, rest) = full_name.split_once(" (")?;
-    rest.strip_suffix(')')
+/// NDI full names have the form `DEVICE (Stream Name)`.
+fn split_full_name(full_name: &str) -> Option<(&str, &str)> {
+    let (device_name, rest) = full_name.split_once(" (")?;
+    let stream_name = rest.strip_suffix(')')?;
+    Some((device_name, stream_name))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const URL_ON_HOST: &str = "192.168.1.20:5961";
     const FULL_NAME: &str = "STUDIO.LOCAL (OBS PGM)";
 
-    fn host() -> IpAddr {
-        "192.168.1.20".parse().unwrap()
+    fn query(device_name: &str, stream_name: &str) -> SourceQuery {
+        SourceQuery::named_stream_on(device_name.to_string(), stream_name.to_string())
+    }
+
+    fn any_stream_query(device_name: &str) -> SourceQuery {
+        SourceQuery::any_stream_on(device_name.to_string())
     }
 
     #[test]
-    fn url_on_same_host_matches() {
-        assert!(is_url_hosted_at(URL_ON_HOST, host()));
+    fn any_stream_query_matches_stream_on_device() {
+        assert!(any_stream_query("STUDIO.LOCAL").matches(FULL_NAME));
     }
 
     #[test]
-    fn url_on_other_host_does_not_match() {
-        assert!(!is_url_hosted_at("192.168.1.200:5961", host()));
+    fn any_stream_query_matches_device_ignoring_case() {
+        assert!(any_stream_query("studio.local").matches(FULL_NAME));
     }
 
     #[test]
-    fn malformed_url_does_not_match() {
-        assert!(!is_url_hosted_at("not-an-address", host()));
+    fn any_stream_query_rejects_other_device() {
+        assert!(!any_stream_query("BOOTH").matches(FULL_NAME));
     }
 
     #[test]
-    fn unnamed_query_matches_any_source_on_host() {
-        assert!(SourceQuery::any_on(host()).matches(FULL_NAME, URL_ON_HOST));
+    fn matching_device_and_stream_match() {
+        assert!(query("STUDIO.LOCAL", "OBS PGM").matches(FULL_NAME));
     }
 
     #[test]
-    fn named_query_matches_short_name() {
-        let query = SourceQuery::named(host(), "OBS PGM".to_string());
-        assert!(query.matches(FULL_NAME, URL_ON_HOST));
+    fn device_name_matches_ignoring_case() {
+        assert!(query("studio.local", "OBS PGM").matches(FULL_NAME));
     }
 
     #[test]
-    fn named_query_matches_full_name() {
-        let query = SourceQuery::named(host(), FULL_NAME.to_string());
-        assert!(query.matches(FULL_NAME, URL_ON_HOST));
+    fn stream_name_is_case_sensitive() {
+        assert!(!query("STUDIO.LOCAL", "obs pgm").matches(FULL_NAME));
     }
 
     #[test]
-    fn named_query_rejects_other_name() {
-        let query = SourceQuery::named(host(), "Test Patterns".to_string());
-        assert!(!query.matches(FULL_NAME, URL_ON_HOST));
+    fn other_device_does_not_match() {
+        assert!(!query("BOOTH", "OBS PGM").matches(FULL_NAME));
     }
 
     #[test]
-    fn named_query_rejects_partial_name() {
-        let query = SourceQuery::named(host(), "OBS".to_string());
-        assert!(!query.matches(FULL_NAME, URL_ON_HOST));
+    fn other_stream_does_not_match() {
+        assert!(!query("STUDIO.LOCAL", "Test Patterns").matches(FULL_NAME));
     }
 
     #[test]
-    fn named_query_rejects_matching_name_on_other_host() {
-        let query = SourceQuery::named(host(), "OBS PGM".to_string());
-        assert!(!query.matches(FULL_NAME, "192.168.1.200:5961"));
+    fn partial_stream_name_does_not_match() {
+        assert!(!query("STUDIO.LOCAL", "OBS").matches(FULL_NAME));
     }
 
     #[test]
-    fn short_name_handles_parentheses_inside_name() {
-        assert_eq!(short_name_of("PC (Cam (wide))"), Some("Cam (wide)"));
+    fn name_without_stream_part_does_not_match() {
+        assert!(!query("STUDIO.LOCAL", "OBS PGM").matches("STUDIO.LOCAL"));
+    }
+
+    #[test]
+    fn split_keeps_parentheses_inside_stream_name() {
+        assert_eq!(
+            split_full_name("PC (Cam (wide))"),
+            Some(("PC", "Cam (wide)"))
+        );
     }
 }

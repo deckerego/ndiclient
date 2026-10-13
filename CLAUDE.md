@@ -1,9 +1,14 @@
 # ndiclient
 
 Proof-of-concept command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
-`ndiclient <ip-address> [source-name]` finds an NDI source running on that host
-(optionally by name) and shows its video in a desktop window. Video only; audio
-is deliberately out of scope for now.
+`ndiclient <device-name> [stream-name]` uses NDI discovery to find the source
+named `DEVICE (Stream)` (or the first stream on that device) and shows its
+video in a desktop window. `ndiclient` without arguments lists the sources it
+discovers. Video only;
+audio is deliberately out of scope for now.
+
+The proof of concept is complete (2026-10-13); the project is now being evolved
+toward production readiness.
 
 ## Project constraints
 
@@ -35,17 +40,22 @@ Follow Uncle Bob's "Clean Code" rules. In short:
 
 ```sh
 cargo build --release
-target/release/ndiclient 192.168.1.20
-target/release/ndiclient 192.168.1.20 "OBS PGM"
-target/release/ndiclient 192.168.1.20 "STUDIO.LOCAL (OBS PGM)"
+target/release/ndiclient
+target/release/ndiclient STUDIO "OBS PGM"
+target/release/ndiclient studio.local "OBS PGM"
+target/release/ndiclient STUDIO
 ```
 
+- Without arguments: discovers for 5 s, prints each source's full NDI name
+  (one per line, de-duplicated, sorted) and exits 0, also when none are found.
 - Close the window or press Escape to quit.
 - Prints the displayed frame rate every 5 seconds.
-- The source name may be the short name or the full NDI name, matched exactly
-  (case-sensitive). Without a name, the first source discovered on the host is used.
+- The source is the one whose full NDI name is `<device-name> (<stream-name>)`.
+  The device name matches case-insensitively (it is a host name); the stream
+  name matches exactly (case-sensitive). Without a stream name, the first
+  stream discovered on the device is used.
 - Gives up with exit code 1 if no matching source is found within 10 s; the
-  error lists the source names seen on that host.
+  error lists all source names discovered.
 - The window opens black right after connecting. "Waiting for video..." is
   printed when 3 s pass without a frame, once per stall (also mid-stream).
 - When run over SSH, export the desktop session first:
@@ -75,27 +85,30 @@ target/release/ndiclient 192.168.1.20 "STUDIO.LOCAL (OBS PGM)"
 ## Architecture
 
 ```
-src/main.rs          argument parsing, wiring, main capture/display loop
+src/main.rs          argument parsing (Command), wiring, source listing,
+                     main capture/display loop
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
 src/display.rs       VideoWindow: SDL2 window, streaming texture, letterboxing
 src/frame_rate.rs    FrameRateMeter: periodic fps reporting
 src/stall.rs         StallDetector: "waiting for video" once per stall
 src/ndi/ffi.rs       raw C declarations for the NDI SDK
 src/ndi/runtime.rs   NdiRuntime: RAII for NDIlib_initialize/NDIlib_destroy
-src/ndi/query.rs     SourceQuery: host + optional name, matching rules
-src/ndi/finder.rs    SourceFinder / SourceDescriptor: find the source matching a query
+src/ndi/query.rs     SourceQuery: device + optional stream name, matching rules
+src/ndi/finder.rs    SourceFinder / SourceDescriptor: list sources, find one matching a query
 src/ndi/receiver.rs  Receiver / VideoFrame / Capture: receive video frames
 tools/               test-pattern NDI sender used for development (C)
 ```
 
 Key decisions:
 
-- **Connecting by IP.** NDI connects by source name, not by IP. The finder is
-  created with the IP in `p_extra_ips`, which queries that host directly (works
-  without multicast/mDNS). We then pick the first source whose `url_address`
-  (`ip:port`) is on that host and, if a name was given, whose full name
-  (`MACHINE (Source)`) or short name (`Source`) equals it. NDI may list a
-  source twice (mDNS + direct query); names are de-duplicated in errors.
+- **Discovery by name.** The finder uses NDI's default discovery (mDNS, or a
+  discovery server if configured in NDI's own config file); no `p_extra_ips`.
+  We pick the first source whose full name (`DEVICE (Stream)`) splits into the
+  requested device and (if given) stream. "First" is NDI's list order, which
+  is roughly discovery order, so with several streams on one device and no
+  stream name the choice is not guaranteed to be stable between runs. NDI may list a source more than once; names are
+  de-duplicated in errors. Earlier PoC versions connected by IP via
+  `p_extra_ips`, which also worked without multicast; that was removed.
 - **Black window on open.** Wayland maps a window only after its first
   present, so `VideoWindow::open` presents a cleared (black) frame.
 - **Pixel format.** The receiver asks for `UYVY_BGRA`. NDI decodes to UYVY
@@ -112,16 +125,16 @@ Key decisions:
 
 ## Testing
 
-- `cargo test`: unit tests for source query matching, the frame-rate meter
-  and the stall detector (16 tests).
+- `cargo test`: unit tests for argument parsing, source query matching, the
+  frame-rate meter and the stall detector (21 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
 - End-to-end: `tools/build_test_pattern_sender.sh` builds
   `target/test_pattern_sender` (1080p30 UYVY color bars with a moving white
   bar, source name "ndiclient test pattern"). Run it, then
-  `target/release/ndiclient <this Pi's IP>`. Screenshots of the Wayland
-  desktop can be taken with `grim`.
+  `target/release/ndiclient <this Pi's hostname> "ndiclient test pattern"`.
+  Screenshots of the Wayland desktop can be taken with `grim`.
 
 ## Results so far (2026-10-13)
 
@@ -158,6 +171,15 @@ Key decisions:
   prints "Waiting for video..." after 3 s, NDI reconnects automatically when
   it restarts, a second stop prints the message again, and the black window
   shows while no video has arrived.
+- Discovery by device + stream name (2026-10-13): over mDNS, the local test
+  pattern was found as `NDIDEV (ndiclient test pattern)` with the device given
+  in lowercase (`ndidev`) and displayed at ~30 fps; the remote
+  `RONINEGO.LOCAL (Test Patterns)` was found and connected. A wrong stream
+  name lists all discovered sources.
+- Listing (2026-10-13): `ndiclient` with no arguments printed both sources
+  above after 5 s; with the local sender stopped, only the remote one.
+- Optional stream name (2026-10-13): `ndiclient ndidev` connected to the local
+  test pattern (~31 fps) and `ndiclient RONINEGO.local` to the remote source.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -171,8 +193,11 @@ Key decisions:
 - Unsupported pixel formats (e.g. P216/PA16, which we never request) end the
   program with an error.
 - Hardcoded: SDK path default, 1280x720 initial window, 10 s discovery
-  timeout, 5 s fps report interval, 3 s stall threshold, highest bandwidth.
-- Name matching is exact and case-sensitive; no partial or wildcard matching.
+  timeout, 5 s listing duration, 5 s fps report interval, 3 s stall threshold, highest bandwidth.
+- Discovery relies on mDNS (or an NDI discovery server). Networks that block
+  multicast need a discovery server; there is no IP fallback any more.
+- Stream name matching is exact and case-sensitive; no partial or wildcard
+  matching.
 - NDI EULA clause 1.b.iii excludes products running on "embedded devices"
   with Linux. A general-purpose Pi running standard Raspberry Pi OS is likely
   outside that exclusion, but check before distributing.
