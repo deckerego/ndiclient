@@ -1,9 +1,10 @@
 # ndiclient
 
 Proof-of-concept command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
-`ndiclient <device-name> <stream-name>` uses NDI discovery to find the source
-named `DEVICE (Stream)` and shows its video in a desktop window. `ndiclient`
-without arguments lists the sources it discovers. Video only;
+`ndiclient <device-name> [stream-name]` uses NDI discovery to find the source
+named `DEVICE (Stream)` (or the first stream on that device) and shows its
+video in a desktop window. `ndiclient` without arguments lists the sources it
+discovers. Video only;
 audio is deliberately out of scope for now.
 
 The proof of concept is complete (2026-10-13); the project is now being evolved
@@ -42,6 +43,7 @@ cargo build --release
 target/release/ndiclient
 target/release/ndiclient STUDIO "OBS PGM"
 target/release/ndiclient studio.local "OBS PGM"
+target/release/ndiclient STUDIO
 ```
 
 - Without arguments: discovers for 5 s, prints each source's full NDI name
@@ -50,7 +52,8 @@ target/release/ndiclient studio.local "OBS PGM"
 - Prints the displayed frame rate every 5 seconds.
 - The source is the one whose full NDI name is `<device-name> (<stream-name>)`.
   The device name matches case-insensitively (it is a host name); the stream
-  name matches exactly (case-sensitive).
+  name matches exactly (case-sensitive). Without a stream name, the first
+  stream discovered on the device is used.
 - Gives up with exit code 1 if no matching source is found within 10 s; the
   error lists all source names discovered.
 - The window opens black right after connecting. "Waiting for video..." is
@@ -90,7 +93,7 @@ src/frame_rate.rs    FrameRateMeter: periodic fps reporting
 src/stall.rs         StallDetector: "waiting for video" once per stall
 src/ndi/ffi.rs       raw C declarations for the NDI SDK
 src/ndi/runtime.rs   NdiRuntime: RAII for NDIlib_initialize/NDIlib_destroy
-src/ndi/query.rs     SourceQuery: device + stream name, matching rules
+src/ndi/query.rs     SourceQuery: device + optional stream name, matching rules
 src/ndi/finder.rs    SourceFinder / SourceDescriptor: list sources, find one matching a query
 src/ndi/receiver.rs  Receiver / VideoFrame / Capture: receive video frames
 tools/               test-pattern NDI sender used for development (C)
@@ -101,7 +104,9 @@ Key decisions:
 - **Discovery by name.** The finder uses NDI's default discovery (mDNS, or a
   discovery server if configured in NDI's own config file); no `p_extra_ips`.
   We pick the first source whose full name (`DEVICE (Stream)`) splits into the
-  requested device and stream. NDI may list a source more than once; names are
+  requested device and (if given) stream. "First" is NDI's list order, which
+  is roughly discovery order, so with several streams on one device and no
+  stream name the choice is not guaranteed to be stable between runs. NDI may list a source more than once; names are
   de-duplicated in errors. Earlier PoC versions connected by IP via
   `p_extra_ips`, which also worked without multicast; that was removed.
 - **Black window on open.** Wayland maps a window only after its first
@@ -121,7 +126,7 @@ Key decisions:
 ## Testing
 
 - `cargo test`: unit tests for argument parsing, source query matching, the
-  frame-rate meter and the stall detector (18 tests).
+  frame-rate meter and the stall detector (21 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
@@ -173,6 +178,8 @@ Key decisions:
   name lists all discovered sources.
 - Listing (2026-10-13): `ndiclient` with no arguments printed both sources
   above after 5 s; with the local sender stopped, only the remote one.
+- Optional stream name (2026-10-13): `ndiclient ndidev` connected to the local
+  test pattern (~31 fps) and `ndiclient RONINEGO.local` to the remote source.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.

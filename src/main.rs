@@ -1,6 +1,6 @@
-//! NDI client: discovers the NDI source with a given device and stream name
-//! and shows its video in a desktop window. Without arguments it lists the
-//! NDI sources it discovers.
+//! NDI client: discovers the NDI source with a given device name (and
+//! optionally stream name) and shows its video in a desktop window. Without
+//! arguments it lists the NDI sources it discovers.
 
 mod display;
 mod frame_rate;
@@ -23,7 +23,7 @@ const LISTING_DURATION: Duration = Duration::from_secs(5);
 const CAPTURE_TIMEOUT: Duration = Duration::from_millis(100);
 const FRAME_RATE_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 const STALL_THRESHOLD: Duration = Duration::from_secs(3);
-const USAGE: &str = "usage: ndiclient <device-name> <stream-name>
+const USAGE: &str = "usage: ndiclient <device-name> [stream-name]
        ndiclient                              (list discovered sources)";
 
 enum Command {
@@ -58,7 +58,10 @@ fn run() -> Result<(), String> {
 fn parse_arguments(arguments: &[String]) -> Result<Command, String> {
     match arguments {
         [] => Ok(Command::ListSources),
-        [device_name, stream_name] => Ok(Command::ShowVideo(SourceQuery::new(
+        [device_name] => Ok(Command::ShowVideo(SourceQuery::any_stream_on(
+            device_name.clone(),
+        ))),
+        [device_name, stream_name] => Ok(Command::ShowVideo(SourceQuery::named_stream_on(
             device_name.clone(),
             stream_name.clone(),
         ))),
@@ -150,8 +153,9 @@ mod tests {
     }
 
     #[test]
-    fn single_argument_is_rejected() {
-        assert!(parse_arguments(&arguments(&["STUDIO"])).is_err());
+    fn device_name_alone_shows_video() {
+        let command = parse_arguments(&arguments(&["STUDIO"]));
+        assert!(matches!(command, Ok(Command::ShowVideo(_))));
     }
 
     #[test]

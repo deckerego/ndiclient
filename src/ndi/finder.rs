@@ -134,7 +134,7 @@ impl<'runtime> SourceFinder<'runtime> {
 }
 
 fn not_found_message(query: &SourceQuery, timeout: Duration, seen_names: &[String]) -> String {
-    let not_found = format!("No {query} found within {timeout:?}");
+    let not_found = format!("Did not find {query} within {timeout:?}");
     if seen_names.is_empty() {
         return format!("{not_found}. No NDI sources were discovered");
     }

@@ -1,17 +1,24 @@
 use std::fmt;
 
 /// Which NDI source to connect to, named by the two parts of its full NDI
-/// name `DEVICE (Stream)`.
+/// name `DEVICE (Stream)`: any stream on a device, or one stream by name.
 pub struct SourceQuery {
     device_name: String,
-    stream_name: String,
+    stream_name: Option<String>,
 }
 
 impl SourceQuery {
-    pub fn new(device_name: String, stream_name: String) -> Self {
+    pub fn any_stream_on(device_name: String) -> Self {
         Self {
             device_name,
-            stream_name,
+            stream_name: None,
+        }
+    }
+
+    pub fn named_stream_on(device_name: String, stream_name: String) -> Self {
+        Self {
+            device_name,
+            stream_name: Some(stream_name),
         }
     }
 
@@ -19,18 +26,27 @@ impl SourceQuery {
     /// names must match exactly.
     pub fn matches(&self, full_name: &str) -> bool {
         split_full_name(full_name).is_some_and(|(device_name, stream_name)| {
-            device_name.eq_ignore_ascii_case(&self.device_name) && stream_name == self.stream_name
+            device_name.eq_ignore_ascii_case(&self.device_name) && self.matches_stream(stream_name)
         })
+    }
+
+    fn matches_stream(&self, stream_name: &str) -> bool {
+        self.stream_name
+            .as_deref()
+            .is_none_or(|wanted| stream_name == wanted)
     }
 }
 
 impl fmt::Display for SourceQuery {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            formatter,
-            "NDI stream \"{}\" on device \"{}\"",
-            self.stream_name, self.device_name
-        )
+        let device_name = &self.device_name;
+        match &self.stream_name {
+            Some(stream_name) => write!(
+                formatter,
+                "NDI stream \"{stream_name}\" on device \"{device_name}\""
+            ),
+            None => write!(formatter, "an NDI stream on device \"{device_name}\""),
+        }
     }
 }
 
@@ -48,7 +64,26 @@ mod tests {
     const FULL_NAME: &str = "STUDIO.LOCAL (OBS PGM)";
 
     fn query(device_name: &str, stream_name: &str) -> SourceQuery {
-        SourceQuery::new(device_name.to_string(), stream_name.to_string())
+        SourceQuery::named_stream_on(device_name.to_string(), stream_name.to_string())
+    }
+
+    fn any_stream_query(device_name: &str) -> SourceQuery {
+        SourceQuery::any_stream_on(device_name.to_string())
+    }
+
+    #[test]
+    fn any_stream_query_matches_stream_on_device() {
+        assert!(any_stream_query("STUDIO.LOCAL").matches(FULL_NAME));
+    }
+
+    #[test]
+    fn any_stream_query_matches_device_ignoring_case() {
+        assert!(any_stream_query("studio.local").matches(FULL_NAME));
+    }
+
+    #[test]
+    fn any_stream_query_rejects_other_device() {
+        assert!(!any_stream_query("BOOTH").matches(FULL_NAME));
     }
 
     #[test]

@@ -43,6 +43,12 @@ as `DEVICE (Stream)`, so for the source `STUDIO (OBS PGM)`:
 target/release/ndiclient STUDIO "OBS PGM"
 ```
 
+The stream name is optional. Without it, the first stream discovered on that
+device is shown:
+```sh
+target/release/ndiclient STUDIO
+```
+
 The device name is matched ignoring case; the stream name must match exactly.
 If no matching source is discovered within 10 seconds, the error lists the
 sources that were discovered.
