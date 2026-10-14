@@ -18,9 +18,10 @@ const CAPTURE_TIMEOUT: Duration = Duration::from_millis(100);
 /// usual NDI programme mix.
 const PLAYED_CHANNELS: u16 = 2;
 
-/// Longer than the dropouts seen from OBS (up to 5 ms), short enough that
-/// holding back silence until it ends adds little delay.
-const MAX_DROPOUT: Duration = Duration::from_millis(10);
+/// OBS was seen punching holes of 1-5 ms into its audio, and of up to ~23 ms
+/// while its network struggled. Concealing them delays all audio by twice
+/// this (the hole, and as much sound after it to fill it with).
+const MAX_DROPOUT: Duration = Duration::from_millis(25);
 
 /// Runs `body` while the receiver's audio is pumped into `buffer` on a
 /// second thread, which stops when `body` returns.

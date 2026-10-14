@@ -4,6 +4,7 @@
 //! sources it discovers.
 
 mod audio_pump;
+mod bridge;
 mod display;
 mod dropout;
 mod frame_rate;
@@ -34,12 +35,16 @@ const LISTING_DURATION: Duration = Duration::from_secs(5);
 const CAPTURE_TIMEOUT: Duration = Duration::from_millis(100);
 const FRAME_RATE_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 const STALL_THRESHOLD: Duration = Duration::from_secs(3);
-/// Audio plays this far behind its arrival, which rides out network jitter
-/// but keeps it close to the video, shown as soon as it arrives.
+/// Audio plays this far behind its arrival. Unbroken audio matters more
+/// than closeness to the video (shown as it arrives), so it starts beyond
+/// the arrival gaps seen on a loaded Wi-Fi and underruns raise it further.
 const AUDIO_LATENCY: AudioLatency = AudioLatency {
-    start: Duration::from_millis(60),
-    max: Duration::from_millis(200),
+    start: Duration::from_millis(100),
+    limit: Duration::from_millis(400),
+    headroom: Duration::from_millis(150),
 };
+/// Short enough not to be heard as a fade, long enough not to click.
+const AUDIO_FADE: Duration = Duration::from_millis(5);
 const FULLSCREEN_OPTION: &str = "--fullscreen";
 const NO_AUDIO_OPTION: &str = "--noaudio";
 const OPTION_PREFIX: &str = "--";
@@ -164,7 +169,7 @@ fn stream_video_and_audio(
     receiver: &Receiver,
     window: &mut VideoWindow,
 ) -> Result<(), String> {
-    let buffer = Arc::new(Mutex::new(JitterBuffer::new(AUDIO_LATENCY)));
+    let buffer = Arc::new(Mutex::new(JitterBuffer::new(AUDIO_LATENCY, AUDIO_FADE)));
     match Speaker::new(sdl, Arc::clone(&buffer)) {
         Ok(mut speaker) => audio_pump::run_alongside(receiver, &buffer, || {
             stream_video(receiver, window, Some(&mut speaker))
@@ -186,6 +191,7 @@ fn stream_video(
     while window.handle_events()? == WindowStatus::Open {
         if let Some(speaker) = speaker.as_deref_mut() {
             follow_audio_format(speaker);
+            report_audio_latency(speaker);
         }
         match receiver.capture_video(CAPTURE_TIMEOUT) {
             Capture::Frame(frame) => {
@@ -214,6 +220,12 @@ fn follow_audio_format(speaker: &mut Speaker) {
         Ok(Some(format)) => println!("Playing audio: {format}"),
         Ok(None) => {}
         Err(error) => report_audio_failure(&error),
+    }
+}
+
+fn report_audio_latency(speaker: &mut Speaker) {
+    if let Some(latency) = speaker.raised_latency() {
+        println!("Audio ran dry, now buffering {} ms", latency.as_millis());
     }
 }
 

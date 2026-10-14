@@ -3,6 +3,7 @@
 //! whatever the hardware needs.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
 use sdl2::{AudioSubsystem, Sdl};
@@ -35,16 +36,30 @@ pub struct Speaker {
     /// so a failure is reported once per format rather than on every check.
     format: Option<AudioFormat>,
     device: Option<AudioDevice<BufferPlayback>>,
+    reported_latency: Duration,
 }
 
 impl Speaker {
     pub fn new(sdl: &Sdl, buffer: Arc<Mutex<JitterBuffer>>) -> Result<Self, String> {
+        let reported_latency = jitter_buffer::lock(&buffer).prime_level();
         Ok(Self {
             audio: sdl.audio()?,
             buffer,
             format: None,
             device: None,
+            reported_latency,
         })
+    }
+
+    /// The new amount of audio queued before playback, when an underrun
+    /// raised it since the last call.
+    pub fn raised_latency(&mut self) -> Option<Duration> {
+        let latency = jitter_buffer::lock(&self.buffer).prime_level();
+        if latency == self.reported_latency {
+            return None;
+        }
+        self.reported_latency = latency;
+        Some(latency)
     }
 
     /// Opens the output device for the format of the queued audio once it is
