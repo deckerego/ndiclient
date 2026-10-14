@@ -50,6 +50,32 @@ library privately in `/usr/lib/ndiclient`, as the NDI SDK documentation
 asks. It recommends `avahi-daemon`, which NDI discovery uses for mDNS.
 
 
+## Installing from the APT Repository
+
+Released packages for Raspberry Pi OS "trixie" (arm64) are published as a
+signed APT repository on GitHub Pages. To add it and install `ndiclient`:
+```sh
+sudo curl -fsSLo /usr/share/keyrings/ndiclient-archive-keyring.gpg \
+    https://deckerego.github.io/ndiclient/ndiclient-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/ndiclient-archive-keyring.gpg] https://deckerego.github.io/ndiclient trixie main" \
+    | sudo tee /etc/apt/sources.list.d/ndiclient.list
+sudo apt update
+sudo apt install ndiclient
+```
+
+Later releases then arrive with `sudo apt upgrade`.
+
+To publish a release, bump the version in `Cargo.toml`, add a matching entry
+to `packaging/debian/changelog`, merge, then tag and push:
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The `APT repository` workflow builds the package and adds it to the
+`gh-pages` branch. Pull requests only build it.
+
+
 ## Usage
 
 Run without arguments to list the NDI sources discovered on the network:
