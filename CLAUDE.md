@@ -71,15 +71,19 @@ packaging/build_deb.sh
   SDK location with the `NDI_SDK_DIR` environment variable at build time.
   `NDI_RUNTIME_DIR` replaces the rpath with another directory (used by the
   Debian package).
-- `packaging/build_deb.sh` builds `target/debian/ndiclient_<ver>-<rev>_<arch>.deb`
+- `packaging/build_deb.sh` builds `target/debian/ndiclient_<version>_<arch>.deb`
   with plain `dpkg-deb` (no debhelper, no cargo-deb). It builds into its own
   target dir (`target/debian/cargo`) with `NDI_RUNTIME_DIR=/usr/lib/ndiclient`,
   stages `/usr/bin/ndiclient`, the NDI runtime in `/usr/lib/ndiclient` (the
   SDK docs say to keep NDI libraries in the application's folder, not the
-  system path) and docs/licenses in `/usr/share/doc/ndiclient`, then fills
+  system path), docs/licenses and `changelog.Debian.gz` in
+  `/usr/share/doc/ndiclient` and the man page `ndiclient.1.gz`, then fills
   `packaging/debian/control.in`. `Depends` comes from `dpkg-shlibdeps`
   (needs `dpkg-dev`); its warning about libndi linking libpthread is NDI's
-  and harmless. Version is Cargo.toml's plus `PACKAGE_REVISION`.
+  and harmless. The package version is the top entry of
+  `packaging/debian/changelog`; the build fails if its upstream part differs
+  from Cargo.toml's version, so bump both together (and add a changelog
+  entry). Keep `packaging/debian/ndiclient.1` in sync with the usage.
   Distribution of the package is not set up yet.
 - The `sdl2` crate is used with the `unsafe_textures` feature so a texture can
   live in the same struct as its `TextureCreator` (no self-referential lifetimes).
@@ -105,7 +109,8 @@ src/ndi/query.rs     SourceQuery: device + optional stream name, matching rules
 src/ndi/finder.rs    SourceFinder / SourceDescriptor: list sources, find one matching a query
 src/ndi/receiver.rs  Receiver / VideoFrame / Capture: receive video frames
 tools/               test-pattern NDI sender used for development (C)
-packaging/           build_deb.sh and Debian control template / copyright
+packaging/           build_deb.sh; Debian control template, copyright,
+                     changelog and man page (packaging/debian/)
 ```
 
 Key decisions:
@@ -230,8 +235,8 @@ Key decisions:
   RUNPATH `/usr/lib/ndiclient` and the generated `Depends` were checked. The
   extracted binary ran discovery with the bundled libndi (no sender was live,
   so none were listed). Not yet installed with `apt`/`dpkg -i` (needs sudo)
-  and not checked with `lintian` (not installed; expect warnings for the
-  missing changelog and man page).
+  and not checked with `lintian` (not installed). The changelog and the man
+  page (renders cleanly with `man -l`) were added afterwards.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.

@@ -1,20 +1,23 @@
 #!/bin/sh
-# Builds target/debian/ndiclient_<version>-<revision>_<arch>.deb.
+# Builds target/debian/ndiclient_<version>_<arch>.deb.
 #
 # The NDI runtime is bundled privately in /usr/lib/ndiclient, as the NDI SDK
 # documentation asks: applications keep their own copy instead of installing
 # it on the system path. Needs the NDI SDK (NDI_SDK_DIR), cargo and
-# dpkg-dev (for dpkg-shlibdeps).
+# dpkg-dev (for dpkg-shlibdeps and dpkg-parsechangelog).
+#
+# The package version is the latest entry in packaging/debian/changelog. Its
+# upstream part must match the version in Cargo.toml.
 set -eu
 
 PACKAGE_NAME=ndiclient
-PACKAGE_REVISION=1
 SDK_DIR="${NDI_SDK_DIR:-/home/pi/NDI SDK for Linux}"
 SDK_LIBRARY_DIR="$SDK_DIR/lib/aarch64-rpi4-linux-gnueabi"
 NDI_LIBRARY=libndi.so.6
 INSTALLED_BINARY_DIR=/usr/bin
 INSTALLED_RUNTIME_DIR=/usr/lib/$PACKAGE_NAME
 INSTALLED_DOC_DIR=/usr/share/doc/$PACKAGE_NAME
+INSTALLED_MAN_DIR=/usr/share/man/man1
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGING_DIR="$PROJECT_DIR/packaging/debian"
@@ -36,8 +39,13 @@ main() {
 }
 
 package_version() {
+    version="$(dpkg-parsechangelog -l "$PACKAGING_DIR/changelog" -S Version)"
     cargo_version="$(cargo pkgid --manifest-path "$PROJECT_DIR/Cargo.toml" | sed 's/.*[#@]//')"
-    echo "$cargo_version-$PACKAGE_REVISION"
+    if [ "${version%-*}" != "$cargo_version" ]; then
+        echo "changelog version $version does not match Cargo.toml version $cargo_version" >&2
+        exit 1
+    fi
+    echo "$version"
 }
 
 build_binary() {
@@ -59,6 +67,15 @@ stage_files() {
     install -m 0644 "$PROJECT_DIR/README.md" "$root$INSTALLED_DOC_DIR/README.md"
     install -m 0644 "$SDK_DIR/NDI SDK License Agreement.txt" "$root$INSTALLED_DOC_DIR/"
     install -m 0644 "$SDK_DIR/licenses/libndi_licenses.txt" "$root$INSTALLED_DOC_DIR/"
+    install_compressed "$PACKAGING_DIR/changelog" "$root$INSTALLED_DOC_DIR/changelog.Debian.gz"
+    install_compressed "$PACKAGING_DIR/$PACKAGE_NAME.1" "$root$INSTALLED_MAN_DIR/$PACKAGE_NAME.1.gz"
+}
+
+# -n leaves out the file name and time stamp, so rebuilds are reproducible.
+install_compressed() {
+    install -d "$(dirname "$2")"
+    gzip -9 -n -c "$1" > "$2"
+    chmod 0644 "$2"
 }
 
 write_control_file() {

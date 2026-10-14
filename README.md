@@ -43,7 +43,9 @@ requirements above. The package lands in `target/debian/` and installs with:
 sudo apt install ./target/debian/ndiclient_0.1.0-1_arm64.deb
 ```
 
-The package installs `/usr/bin/ndiclient` and bundles the NDI runtime
+The package version comes from `packaging/debian/changelog` and must match
+the version in `Cargo.toml`. The package installs `/usr/bin/ndiclient` and
+its man page, and bundles the NDI runtime
 library privately in `/usr/lib/ndiclient`, as the NDI SDK documentation
 asks. It recommends `avahi-daemon`, which NDI discovery uses for mDNS.
 
