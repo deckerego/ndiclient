@@ -1,7 +1,6 @@
-# To publish a release, bump the version in `Cargo.toml`, 
+# To publish a release update `Cargo.toml`, 
 # add a matching entry here, merge, then publish a GitHub release
 # tagged with that version.
-
 ndiclient (0.2.0-1) unstable; urgency=medium
 
   * Added audio streaming support
