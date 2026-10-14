@@ -5,6 +5,7 @@
 
 mod display;
 mod frame_rate;
+mod i420;
 mod ndi;
 mod picture;
 mod stall;
