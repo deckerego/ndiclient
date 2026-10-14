@@ -2,8 +2,8 @@
 # add a matching entry here, merge, then publish a GitHub release
 # tagged with that version.
 
-ndiclient (0.1.0-1) unstable; urgency=medium
+ndiclient (0.2.0-1) unstable; urgency=medium
 
-  * Initial Debian package.
+  * Added audio streaming support
 
- -- John Ellis <john@deckerego.net>  Wed, 14 Oct 2026 10:25:37 -0400
+ -- John Ellis <john@deckerego.net>  Wed, 14 Oct 2026 16:40:00 -0400
