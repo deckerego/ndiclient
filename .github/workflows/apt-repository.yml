@@ -1,15 +1,11 @@
 name: APT repository
 
-# Pull requests only build the package. A version tag (vX.Y.Z, matching
-# Cargo.toml) or a manual run also publishes it to the APT repository on the
-# gh-pages branch, which GitHub Pages serves.
+# Publishing a GitHub release (tagged vX.Y.Z, matching Cargo.toml) builds the
+# package and adds it to the APT repository on the gh-pages branch, which
+# GitHub Pages serves. Draft releases don't run it until they are published.
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    tags: ['v*']
-  workflow_dispatch:
+  release:
+    types: [published]
 
 # Publishing commits to gh-pages; two runs at once would race on the push.
 concurrency:
@@ -18,7 +14,6 @@ concurrency:
 
 jobs:
   package:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04-arm
     # Built on the Debian release Raspberry Pi OS is based on, so
     # dpkg-shlibdeps derives dependencies that exist there.
@@ -26,7 +21,6 @@ jobs:
     permissions:
       contents: write
     env:
-      PUBLISH: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
       NDI_SDK_URL: https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz
       NDI_SDK_DIR: /opt/ndi/NDI SDK for Linux
       APT_REPO_DIR: apt-repo
@@ -45,7 +39,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Check the tag matches Cargo.toml
-        if: ${{ github.ref_type == 'tag' }}
         run: |
           cargo_version="$(cargo pkgid | sed 's/.*[#@]//')"
           if [ "$GITHUB_REF_NAME" != "v$cargo_version" ]; then
@@ -73,7 +66,6 @@ jobs:
           path: target/debian/*.deb
 
       - name: Check out the APT repository
-        if: ${{ env.PUBLISH == 'true' }}
         run: |
           # The container runs as root on a workspace the runner user owns.
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -88,7 +80,6 @@ jobs:
           fi
 
       - name: Import the signing key
-        if: ${{ env.PUBLISH == 'true' }}
         env:
           SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
         run: |
@@ -97,13 +88,11 @@ jobs:
           echo "APT_SIGNING_KEY=$fingerprint" >> "$GITHUB_ENV"
 
       - name: Update the APT repository
-        if: ${{ env.PUBLISH == 'true' }}
         run: packaging/update_apt_repo.sh "$APT_REPO_DIR" target/debian/*.deb
 
       # Verifying against the published public key catches a secret and a
       # variable that belong to different key pairs before users see it.
       - name: Verify the signature with the public key
-        if: ${{ env.PUBLISH == 'true' }}
         env:
           SIGNING_PUBLIC_KEY: ${{ vars.SIGNING_PUBLIC_KEY }}
         run: |
@@ -112,7 +101,6 @@ jobs:
 
       # .nojekyll makes Pages serve the files as they are.
       - name: Publish the APT repository
-        if: ${{ env.PUBLISH == 'true' }}
         run: |
           cd "$APT_REPO_DIR"
           touch .nojekyll

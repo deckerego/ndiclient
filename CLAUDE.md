@@ -87,12 +87,12 @@ packaging/build_deb.sh
 - Distribution: `.github/workflows/apt-repository.yml` builds the package in
   a `debian:trixie` container on GitHub's `ubuntu-24.04-arm` runner. It
   downloads the NDI SDK from NDI's public URL and runs its installer with
-  `y` piped in (the repository owner accepted the EULA). On a `vX.Y.Z` tag
-  (must match Cargo.toml) or a manual run it then runs
-  `packaging/update_apt_repo.sh` on the `gh-pages` branch and pushes it;
-  GitHub Pages serves it at https://deckerego.github.io/ndiclient
-  (distribution `trixie`, component `main`). Pull requests into `main` only
-  build. Signing uses the secret `SIGNING_PRIVATE_KEY` (must have no
+  `y` piped in (the repository owner accepted the EULA). It runs only when
+  a GitHub release is published (its tag `vX.Y.Z` must match Cargo.toml);
+  it then runs `packaging/update_apt_repo.sh` on the `gh-pages` branch and
+  pushes it; GitHub Pages serves it at https://deckerego.github.io/ndiclient
+  (distribution `trixie`, component `main`). Releases created with the
+  workflow `GITHUB_TOKEN` don't trigger it (GitHub prevents that). Signing uses the secret `SIGNING_PRIVATE_KEY` (must have no
   passphrase); the signature is checked against the variable
   `SIGNING_PUBLIC_KEY`. `update_apt_repo.sh` keeps old packages in
   `pool/` and refuses to replace a `.deb` with different content, so a

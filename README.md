@@ -66,14 +66,15 @@ sudo apt install ndiclient
 Later releases then arrive with `sudo apt upgrade`.
 
 To publish a release, bump the version in `Cargo.toml`, add a matching entry
-to `packaging/debian/changelog`, merge, then tag and push:
+to `packaging/debian/changelog`, merge, then publish a GitHub release
+tagged with that version:
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+gh release create v0.1.0 --target main --generate-notes
 ```
 
-The `APT repository` workflow builds the package and adds it to the
-`gh-pages` branch. Pull requests only build it.
+Publishing the release runs the `APT repository` workflow, which builds the
+package and adds it to the `gh-pages` branch. A draft release runs it only
+once it is published.
 
 
 ## Usage
