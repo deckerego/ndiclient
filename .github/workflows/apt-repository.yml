@@ -6,6 +6,7 @@ name: APT repository
 on:
   release:
     types: [published]
+  workflow_dispatch: 
 
 # Publishing commits to gh-pages; two runs at once would race on the push.
 concurrency:
@@ -41,7 +42,7 @@ jobs:
       - name: Check the tag matches Cargo.toml
         run: |
           cargo_version="$(cargo pkgid | sed 's/.*[#@]//')"
-          if [ "$GITHUB_REF_NAME" != "v$cargo_version" ]; then
+          if [ "$GITHUB_REF_NAME" != "$cargo_version" ]; then
             echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $cargo_version" >&2
             exit 1
           fi
