@@ -1,6 +1,7 @@
 .TH NDICLIENT 1 "October 2026" "ndiclient 0.1.0" "User Commands"
 .SH NAME
-ndiclient \- command line NDI video receiver
+ndiclient \- 
+command line NDI video monitor
 .SH SYNOPSIS
 .B ndiclient
 .br
@@ -10,33 +11,35 @@ ndiclient \- command line NDI video receiver
 .RI [ stream-name ]
 .SH DESCRIPTION
 .B ndiclient
-finds an NDI source on the network and shows its video in a desktop window
-or fullscreen.
+uses mDNS or an NDI discovery server to find an NDI device and source on the 
+network and render its video stream in a desktop window or fullscreen.
 .PP
-Without arguments, it discovers sources for 5 seconds, prints the full NDI
-name of each one and exits.
+
+If you pass no arguments,
+.B ndiclient
+will search for 5 seconds, prints the full NDI name of each source that is 
+discovered, then exit. Use this to list broadcast sources.
 .PP
 With arguments, it shows the source named
-.IR device-name " (" stream-name ).
+.IR DEVICE_NAME " (" STREAM_NAME ).
 The device name matches ignoring case; the stream name must match exactly.
 Without a stream name, the first stream discovered on the device is shown.
 .SH OPTIONS
 .TP
 .B \-\-fullscreen
-Cover the whole screen instead of opening a 1280x720 window, and hide the
-mouse cursor. May appear anywhere among the arguments.
+Go into "kiosk mode" instead of running within a window.
 .SH KEYS
-.TP
+.PP
 .BR F11 ", " F
 Switch between window and fullscreen.
-.TP
-.B Escape
-Quit. Closing the window also quits.
+.PP
+.BR Escape
+Quit either in fullscreen or windowed mode.
 .SH EXIT STATUS
-.TP
+.PP
 .B 0
 Success, also when listing finds no sources.
-.TP
+.PP
 .B 1
 No matching source was found within 10 seconds, or another error occurred.
 .SH ENVIRONMENT
@@ -45,14 +48,14 @@ When run over SSH, export the desktop session first, for example
 and
 .BR WAYLAND_DISPLAY=wayland\-0 .
 .SH EXAMPLES
-.TP
+.PP
 .B ndiclient
 List the NDI sources on the network.
-.TP
+.PP
 .B ndiclient STUDIO \(dqOBS PGM\(dq
 Show the source
-.BR "STUDIO (OBS PGM)" .
-.TP
+.BR "STUDIO (PGM)" .
+.PP
 .B ndiclient \-\-fullscreen STUDIO
 Show the first stream of device STUDIO fullscreen.
 .SH NOTES
