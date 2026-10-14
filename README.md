@@ -23,9 +23,9 @@ target/release/ndiclient
 ```
 
 Then pass the NDI device name and stream name of a source. NDI lists sources
-as `DEVICE (Stream)`, so for the source `STUDIO (OBS PGM)`:
+as `DEVICE (STREAM)`, so for the source `STUDIO (PGM)`:
 ```sh
-target/release/ndiclient STUDIO "OBS PGM"
+target/release/ndiclient STUDIO PGM
 ```
 
 The stream name is optional. Without it, the first stream discovered on that
@@ -34,9 +34,14 @@ device is shown:
 target/release/ndiclient STUDIO
 ```
 
+Add `--noaudio` to skip opening an audio device and ignore the audio feed:
+```sh
+target/release/ndiclient --noaudio STUDIO PGM
+```
+
 Add `--fullscreen` to show the video fullscreen instead of in a window:
 ```sh
-target/release/ndiclient --fullscreen STUDIO "OBS PGM"
+target/release/ndiclient --fullscreen STUDIO PGM
 ```
 
 In fullscreen the mouse cursor is hidden, so the screen shows only the video
