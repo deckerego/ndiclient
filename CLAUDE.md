@@ -38,6 +38,8 @@ target/release/ndiclient --fullscreen STUDIO "OBS PGM"
   instead of opening a 1280x720 resizable window. It is SDL "desktop"
   fullscreen: the display mode is not changed and the picture is
   letterboxed. Not valid without a device name.
+- Kiosk mode: in fullscreen the mouse cursor is hidden. F11 or F switches
+  between windowed and fullscreen at runtime (held keys don't repeat it).
 - Close the window or press Escape to quit (also in fullscreen).
 - Prints the displayed frame rate every 5 seconds.
 - The source is the one whose full NDI name is `<device-name> (<stream-name>)`.
@@ -80,7 +82,8 @@ src/main.rs          argument parsing (Command, --fullscreen), wiring,
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
 src/i420.rs          I420Frame: repacks UYVY into planar I420 for the GPU
 src/display.rs       VideoWindow / WindowMode: SDL2 window or fullscreen,
-                     streaming texture, letterboxing
+                     key handling, cursor hiding, streaming texture,
+                     letterboxing
 src/frame_rate.rs    FrameRateMeter: periodic fps reporting
 src/stall.rs         StallDetector: "waiting for video" once per stall
 src/ndi/ffi.rs       raw C declarations for the NDI SDK
@@ -115,6 +118,11 @@ Key decisions:
   `NdiRuntime`; `VideoFrame` borrows `Receiver` and frees its buffer on drop.
 - **Single thread.** Capture uses a 100 ms timeout so the SDL event loop stays
   responsive. Vsync paces presentation. No threading code exists yet.
+- **Kiosk mode.** `WindowMode` decides fullscreen type and cursor
+  visibility; `VideoWindow::enter` applies both, at open and on toggle. The
+  window is always created resizable so it stays resizable after leaving
+  fullscreen. A toggle redraws the last picture at once, because a stalled
+  source may not send another frame for a while.
 - **Aspect ratio.** `Canvas::set_logical_size` letterboxes the picture inside
   the resizable window. `picture_aspect_ratio` from NDI is ignored (square
   pixels assumed).
@@ -122,7 +130,8 @@ Key decisions:
 ## Testing
 
 - `cargo test`: unit tests for argument parsing, source query matching, the
-  frame-rate meter, the stall detector and the UYVY→I420 repacking (34 tests).
+  frame-rate meter, the stall detector, the UYVY→I420 repacking, window mode
+  toggling and key handling (44 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
@@ -177,8 +186,9 @@ Key decisions:
   test pattern (~31 fps) and `ndiclient <DEVICE>` to the remote source.
 - Fullscreen (2026-10-13): `--fullscreen` with the local test pattern filled
   the 1920x1080 HDMI display (screenshot via `grim`) at ~30 fps. The mouse
-  cursor stays visible. Escape was not tested by injected keypress (no
-  `wtype`/`ydotool` installed); it uses the same event handling as windowed.
+  cursor stayed visible (fixed by kiosk mode, below). Escape was not tested
+  by injected keypress (no `wtype`/`ydotool` installed); it uses the same
+  event handling as windowed.
 - Profiling and the I420 upload (2026-10-13): the 1080p30 remote source over Wi-Fi.
   - CPU per frame before the change: `texture.update` ~17 ms (SDL's CPU
     UYVY→RGB), capture/present negligible. After: repack + upload ~4.6 ms.
@@ -196,6 +206,11 @@ Key decisions:
     -55 dBm, power save on), close to what it sustains. Cause: Wi-Fi
     congestion, not the client. Fix with wired Ethernet or a lower-bitrate
     source (NDI|HX).
+- Kiosk mode (2026-10-14): `--fullscreen` with the local test pattern at
+  ~31 fps; a `grim -c` screenshot (which includes the cursor, checked against
+  a desktop screenshot) shows no cursor over the picture. Windowed mode still
+  shows it. The F11/F toggle was not tested by injected keypress (no
+  `wtype`/`ydotool`); its key mapping is covered by unit tests.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -224,5 +239,4 @@ Key decisions:
 
 - Audio (NDI `capture_v3` audio frames → SDL audio queue), likely on its own
   thread or via NDI FrameSync.
-- Fullscreen toggle at runtime, hiding the cursor in fullscreen (kiosk mode).
 - Measure with real network sources at 1080p60 and with NDI|HX.

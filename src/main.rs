@@ -13,7 +13,7 @@ mod stall;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use display::{VideoWindow, WindowMode};
+use display::{VideoWindow, WindowMode, WindowStatus};
 use frame_rate::FrameRateMeter;
 use ndi::{Capture, NdiRuntime, Receiver, SourceFinder, SourceQuery};
 use stall::StallDetector;
@@ -120,7 +120,7 @@ fn show_video(
 fn stream_video(receiver: &Receiver, window: &mut VideoWindow) -> Result<(), String> {
     let mut frame_rate = FrameRateMeter::new(FRAME_RATE_REPORT_INTERVAL);
     let mut stall = StallDetector::new(STALL_THRESHOLD);
-    while !window.is_close_requested() {
+    while window.handle_events()? == WindowStatus::Open {
         match receiver.capture_video(CAPTURE_TIMEOUT) {
             Capture::Video(frame) => {
                 show_frame(&frame, window)?;

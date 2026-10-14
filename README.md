@@ -54,7 +54,9 @@ Add `--fullscreen` to show the video fullscreen instead of in a window:
 target/release/ndiclient --fullscreen STUDIO "OBS PGM"
 ```
 
-Close the window or press Escape to quit.
+In fullscreen the mouse cursor is hidden, so the screen shows only the video
+(kiosk mode). Press F11 or F to switch between window and fullscreen while
+the video plays. Close the window or press Escape to quit.
 
 The device name is matched ignoring case; the stream name must match exactly.
 If no matching source is discovered within 10 seconds, the error lists the

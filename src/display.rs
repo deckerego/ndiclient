@@ -1,11 +1,14 @@
 //! An SDL2 desktop window that shows a stream of pictures, letterboxed.
+//! F11 or F switches between windowed and fullscreen; fullscreen hides the
+//! mouse cursor so the screen can serve as a kiosk display.
 
 use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::mouse::MouseUtil;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, Texture, TextureAccess, TextureCreator};
-use sdl2::video::{Window, WindowContext};
+use sdl2::video::{FullscreenType, Window, WindowContext};
 
 use crate::i420::I420Frame;
 use crate::picture::{Dimensions, Picture, PixelLayout};
@@ -39,10 +42,68 @@ pub enum WindowMode {
     Fullscreen,
 }
 
+impl WindowMode {
+    fn toggled(self) -> Self {
+        match self {
+            Self::Windowed => Self::Fullscreen,
+            Self::Fullscreen => Self::Windowed,
+        }
+    }
+
+    /// Desktop fullscreen keeps the current display mode, so no mode switch happens.
+    fn fullscreen_type(self) -> FullscreenType {
+        match self {
+            Self::Windowed => FullscreenType::Off,
+            Self::Fullscreen => FullscreenType::Desktop,
+        }
+    }
+
+    /// A kiosk display shows only the picture, so fullscreen hides the pointer.
+    fn shows_cursor(self) -> bool {
+        self == Self::Windowed
+    }
+}
+
+/// Whether the viewer still wants to watch after the latest window events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowStatus {
+    Open,
+    CloseRequested,
+}
+
+/// What the viewer asked for through a window event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UserRequest {
+    Close,
+    ToggleFullscreen,
+}
+
+fn user_request(event: &Event) -> Option<UserRequest> {
+    match event {
+        Event::Quit { .. } => Some(UserRequest::Close),
+        Event::KeyDown {
+            keycode: Some(keycode),
+            repeat: false,
+            ..
+        } => key_request(*keycode),
+        _ => None,
+    }
+}
+
+fn key_request(keycode: Keycode) -> Option<UserRequest> {
+    match keycode {
+        Keycode::Escape => Some(UserRequest::Close),
+        Keycode::F11 | Keycode::F => Some(UserRequest::ToggleFullscreen),
+        _ => None,
+    }
+}
+
 pub struct VideoWindow {
     canvas: Canvas<Window>,
     texture_creator: TextureCreator<WindowContext>,
     event_pump: EventPump,
+    mouse: MouseUtil,
+    mode: WindowMode,
     stream_texture: Option<StreamTexture>,
     i420_frame: I420Frame,
 }
@@ -52,48 +113,66 @@ impl VideoWindow {
         let sdl = sdl2::init()?;
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "linear");
         let video = sdl.video()?;
-        let mut builder =
-            video.window(title, INITIAL_WINDOW_SIZE.width, INITIAL_WINDOW_SIZE.height);
-        builder.position_centered();
-        match mode {
-            WindowMode::Windowed => builder.resizable(),
-            // Desktop fullscreen keeps the current display mode, so no mode switch happens.
-            WindowMode::Fullscreen => builder.fullscreen_desktop(),
-        };
-        let window = builder.build().map_err(|error| error.to_string())?;
-        let mut canvas = window
+        // Resizable also in fullscreen, so the window can be resized after toggling out.
+        let window = video
+            .window(title, INITIAL_WINDOW_SIZE.width, INITIAL_WINDOW_SIZE.height)
+            .position_centered()
+            .resizable()
+            .build()
+            .map_err(|error| error.to_string())?;
+        let canvas = window
             .into_canvas()
             .accelerated()
             .present_vsync()
             .build()
             .map_err(|error| error.to_string())?;
-        // Wayland only maps a window once something is presented, so show
-        // black until the first frame arrives.
-        canvas.clear();
-        canvas.present();
         let texture_creator = canvas.texture_creator();
-        let event_pump = sdl.event_pump()?;
-        Ok(Self {
+        let mut video_window = Self {
             canvas,
             texture_creator,
-            event_pump,
+            event_pump: sdl.event_pump()?,
+            mouse: sdl.mouse(),
+            mode: WindowMode::Windowed,
             stream_texture: None,
             i420_frame: I420Frame::default(),
-        })
+        };
+        video_window.enter(mode)?;
+        // Wayland only maps a window once something is presented, so show
+        // black until the first frame arrives.
+        video_window.present()?;
+        Ok(video_window)
     }
 
-    /// Drains pending window events; true once the user closes the window or presses Escape.
-    pub fn is_close_requested(&mut self) -> bool {
-        self.event_pump.poll_iter().any(|event| {
-            matches!(
-                event,
-                Event::Quit { .. }
-                    | Event::KeyDown {
-                        keycode: Some(Keycode::Escape),
-                        ..
-                    }
-            )
-        })
+    /// Drains pending window events and acts on them: closing the window or
+    /// pressing Escape requests close, F11 or F toggles fullscreen.
+    pub fn handle_events(&mut self) -> Result<WindowStatus, String> {
+        let requests: Vec<UserRequest> = self
+            .event_pump
+            .poll_iter()
+            .filter_map(|event| user_request(&event))
+            .collect();
+        for request in requests {
+            match request {
+                UserRequest::Close => return Ok(WindowStatus::CloseRequested),
+                UserRequest::ToggleFullscreen => self.toggle_fullscreen()?,
+            }
+        }
+        Ok(WindowStatus::Open)
+    }
+
+    /// Redraws right away, because a stalled source may not send a new frame for a while.
+    fn toggle_fullscreen(&mut self) -> Result<(), String> {
+        self.enter(self.mode.toggled())?;
+        self.present()
+    }
+
+    fn enter(&mut self, mode: WindowMode) -> Result<(), String> {
+        self.canvas
+            .window_mut()
+            .set_fullscreen(mode.fullscreen_type())?;
+        self.mouse.show_cursor(mode.shows_cursor());
+        self.mode = mode;
+        Ok(())
     }
 
     pub fn show(&mut self, picture: &Picture) -> Result<(), String> {
@@ -128,14 +207,12 @@ impl VideoWindow {
             .map_err(|error| error.to_string())
     }
 
+    /// Draws the latest picture, or black before the first one arrives.
     fn present(&mut self) -> Result<(), String> {
-        let texture = &self
-            .stream_texture
-            .as_ref()
-            .expect("texture prepared by the upload")
-            .texture;
         self.canvas.clear();
-        self.canvas.copy(texture, None, None)?;
+        if let Some(current) = &self.stream_texture {
+            self.canvas.copy(&current.texture, None, None)?;
+        }
         self.canvas.present();
         Ok(())
     }
@@ -182,4 +259,86 @@ fn prepared_texture(stream_texture: &mut Option<StreamTexture>) -> &mut Texture 
         .as_mut()
         .expect("texture prepared before upload")
         .texture
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sdl2::keyboard::Mod;
+
+    fn key_down(keycode: Keycode) -> Event {
+        Event::KeyDown {
+            timestamp: 0,
+            window_id: 0,
+            keycode: Some(keycode),
+            scancode: None,
+            keymod: Mod::NOMOD,
+            repeat: false,
+        }
+    }
+
+    fn repeated_key_down(keycode: Keycode) -> Event {
+        Event::KeyDown {
+            timestamp: 0,
+            window_id: 0,
+            keycode: Some(keycode),
+            scancode: None,
+            keymod: Mod::NOMOD,
+            repeat: true,
+        }
+    }
+
+    #[test]
+    fn windowed_toggles_to_fullscreen() {
+        assert_eq!(WindowMode::Windowed.toggled(), WindowMode::Fullscreen);
+    }
+
+    #[test]
+    fn fullscreen_toggles_to_windowed() {
+        assert_eq!(WindowMode::Fullscreen.toggled(), WindowMode::Windowed);
+    }
+
+    #[test]
+    fn windowed_shows_cursor() {
+        assert!(WindowMode::Windowed.shows_cursor());
+    }
+
+    #[test]
+    fn fullscreen_hides_cursor() {
+        assert!(!WindowMode::Fullscreen.shows_cursor());
+    }
+
+    #[test]
+    fn quit_event_requests_close() {
+        let quit = Event::Quit { timestamp: 0 };
+        assert_eq!(user_request(&quit), Some(UserRequest::Close));
+    }
+
+    #[test]
+    fn escape_requests_close() {
+        let request = user_request(&key_down(Keycode::Escape));
+        assert_eq!(request, Some(UserRequest::Close));
+    }
+
+    #[test]
+    fn f11_toggles_fullscreen() {
+        let request = user_request(&key_down(Keycode::F11));
+        assert_eq!(request, Some(UserRequest::ToggleFullscreen));
+    }
+
+    #[test]
+    fn f_toggles_fullscreen() {
+        let request = user_request(&key_down(Keycode::F));
+        assert_eq!(request, Some(UserRequest::ToggleFullscreen));
+    }
+
+    #[test]
+    fn held_toggle_key_is_ignored() {
+        assert_eq!(user_request(&repeated_key_down(Keycode::F11)), None);
+    }
+
+    #[test]
+    fn other_key_is_ignored() {
+        assert_eq!(user_request(&key_down(Keycode::Space)), None);
+    }
 }
