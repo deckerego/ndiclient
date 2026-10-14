@@ -61,6 +61,12 @@ If no matching source is discovered within 10 seconds, the error lists the
 sources that were discovered.
 
 
+## Performance Hacks
+
+Turning off wifi power saving may help a bit with packet loss. 
+Run `sudo iw dev wlan0 set power_save off` to try it out.
+
+
 ## Testing
 
 A test pattern sender is available in the `tools/` directory for local integration testing.

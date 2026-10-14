@@ -184,19 +184,17 @@ Key decisions:
   shows while no video has arrived.
 - Discovery by device + stream name (2026-10-13): over mDNS, the local test
   pattern was found as `NDIDEV (ndiclient test pattern)` with the device given
-  in lowercase (`ndidev`) and displayed at ~30 fps; the remote
-  `RONINEGO.LOCAL (Test Patterns)` was found and connected. A wrong stream
-  name lists all discovered sources.
+  in lowercase (`ndidev`) and displayed at ~30 fps; the remote source 
+  was found and connected. A wrong stream name lists all discovered sources.
 - Listing (2026-10-13): `ndiclient` with no arguments printed both sources
   above after 5 s; with the local sender stopped, only the remote one.
 - Optional stream name (2026-10-13): `ndiclient ndidev` connected to the local
-  test pattern (~31 fps) and `ndiclient RONINEGO.local` to the remote source.
+  test pattern (~31 fps) and `ndiclient <DEVICE>` to the remote source.
 - Fullscreen (2026-10-13): `--fullscreen` with the local test pattern filled
   the 1920x1080 HDMI display (screenshot via `grim`) at ~30 fps. The mouse
   cursor stays visible. Escape was not tested by injected keypress (no
   `wtype`/`ydotool` installed); it uses the same event handling as windowed.
-- Profiling and the I420 upload (2026-10-13): the 1080p30 `RONINEGO.LOCAL
-  (OBS PGM)` source over Wi-Fi.
+- Profiling and the I420 upload (2026-10-13): the 1080p30 remote source over Wi-Fi.
   - CPU per frame before the change: `texture.update` ~17 ms (SDL's CPU
     UYVY→RGB), capture/present negligible. After: repack + upload ~4.6 ms.
   - Same source, back-to-back 20 s samples: 81–82% → 47–48% of one core,
