@@ -75,7 +75,7 @@ cargo test
 
 *  Right now the receiver requests the highest bandwidth feed available, low bandwidth mode is not supported.
 *  Audio is currently not supported, but will be added before the first stable release.
-*  No resolution scaling is provided yet. This will be added before a stable release.
+*  No resolution scaling is provided yet.
 
 
 ## License

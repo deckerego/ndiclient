@@ -1,25 +1,10 @@
 # ndiclient
 
-Proof-of-concept command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
+Command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
 `ndiclient [--fullscreen] <device-name> [stream-name]` uses NDI discovery to
 find the source named `DEVICE (Stream)` (or the first stream on that device)
 and shows its video in a desktop window or fullscreen. `ndiclient` without
-arguments lists the sources it discovers. Video only; audio is deliberately
-out of scope for now.
-
-The proof of concept is complete (2026-10-13); the project is now being evolved
-toward production readiness.
-
-## Project constraints
-
-- Proof of concept: shortcuts and hardcoded values are fine when they keep the
-  code smaller and simpler.
-- Rust is preferred; C or C++ only if it makes the code much simpler.
-- Audio comes later, if the project proves feasible.
-- Failure is an acceptable outcome. If the Pi can't reasonably do this, stop
-  and write up the limitations and lessons learned instead of forcing it.
-- Inspiration/prior art: Dicaffeine (https://dicaffeine.com/), which uses a
-  libyuri fork (https://github.com/melnijir/libyuri) but is unmaintained.
+arguments lists the sources it discovers.
 
 ## Coding standard
 
