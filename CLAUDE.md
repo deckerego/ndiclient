@@ -1,10 +1,10 @@
 # ndiclient
 
 Command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
-`ndiclient [--fullscreen] <device-name> [stream-name]` uses NDI discovery to
-find the source named `DEVICE (Stream)` (or the first stream on that device)
-and shows its video in a desktop window or fullscreen. `ndiclient` without
-arguments lists the sources it discovers.
+`ndiclient [--fullscreen] [--noaudio] <device-name> [stream-name]` uses NDI
+discovery to find the source named `DEVICE (Stream)` (or the first stream on
+that device), shows its video in a desktop window or fullscreen and plays its
+audio. `ndiclient` without arguments lists the sources it discovers.
 
 ## Coding standard
 
@@ -30,6 +30,7 @@ target/release/ndiclient STUDIO "OBS PGM"
 target/release/ndiclient studio.local "OBS PGM"
 target/release/ndiclient STUDIO
 target/release/ndiclient --fullscreen STUDIO "OBS PGM"
+target/release/ndiclient --noaudio STUDIO
 packaging/build_deb.sh
 ```
 
@@ -39,6 +40,12 @@ packaging/build_deb.sh
   instead of opening a 1280x720 resizable window. It is SDL "desktop"
   fullscreen: the display mode is not changed and the picture is
   letterboxed. Not valid without a device name.
+- Audio plays on SDL's default output (PipeWire here) unless `--noaudio`
+  is given. `--noaudio` opens no audio device, starts no audio thread and
+  doesn't capture audio; it isn't valid without a device name either. Options
+  may come in any order, each at most once. "Playing audio: 48000 Hz, 2
+  channels" is printed when the output opens (again if the format changes).
+  If no output can be opened, a warning is printed and the video still plays.
 - Kiosk mode: in fullscreen the mouse cursor is hidden. F11 or F switches
   between windowed and fullscreen at runtime (held keys don't repeat it).
 - Close the window or press Escape to quit (also in fullscreen).
@@ -116,9 +123,16 @@ packaging/build_deb.sh
 ## Architecture
 
 ```
-src/main.rs          argument parsing (Command, --fullscreen), wiring,
-                     source listing, main capture/display loop
+src/main.rs          argument parsing (Command, ViewOptions: --fullscreen,
+                     --noaudio), wiring, source listing, main
+                     capture/display loop
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
+src/sound.rs         Sound / AudioFormat: device-agnostic planar audio view,
+                     interleaving, channel narrowing
+src/jitter_buffer.rs JitterBuffer / AudioLatency: audio queue between the
+                     network and the sound card (priming, backlog trimming)
+src/audio_pump.rs    the only threading code: audio capture thread
+src/speaker.rs       Speaker: SDL audio output fed from the jitter buffer
 src/i420.rs          I420Frame: repacks UYVY into planar I420 for the GPU
 src/display.rs       VideoWindow / WindowMode: SDL2 window or fullscreen,
                      key handling, cursor hiding, streaming texture,
@@ -129,7 +143,7 @@ src/ndi/ffi.rs       raw C declarations for the NDI SDK
 src/ndi/runtime.rs   NdiRuntime: RAII for NDIlib_initialize/NDIlib_destroy
 src/ndi/query.rs     SourceQuery: device + optional stream name, matching rules
 src/ndi/finder.rs    SourceFinder / SourceDescriptor: list sources, find one matching a query
-src/ndi/receiver.rs  Receiver / VideoFrame / Capture: receive video frames
+src/ndi/receiver.rs  Receiver / VideoFrame / AudioFrame / Capture: receive frames
 tools/               test-pattern NDI sender used for development (C)
 packaging/           build_deb.sh, update_apt_repo.sh; Debian control
                      template, copyright, changelog and man page
@@ -157,9 +171,35 @@ Key decisions:
   column is dropped. BGRA (only sent by sources with alpha) maps to SDL
   `ARGB8888`. `allow_video_fields = false` makes NDI deinterlace for us.
 - **Lifetimes enforce teardown order.** `SourceFinder` and `Receiver` borrow
-  `NdiRuntime`; `VideoFrame` borrows `Receiver` and frees its buffer on drop.
-- **Single thread.** Capture uses a 100 ms timeout so the SDL event loop stays
-  responsive. Vsync paces presentation. No threading code exists yet.
+  `NdiRuntime`; `VideoFrame` and `AudioFrame` borrow `Receiver` and free
+  their buffers on drop.
+- **Video on the main thread.** Video capture uses a 100 ms timeout so the SDL
+  event loop stays responsive. Vsync paces presentation.
+- **Audio on its own thread.** NDI allows capture on several threads at once,
+  so `audio_pump` (scoped thread, all the threading code) captures audio
+  only, and the main thread video only. Display hitches therefore don't
+  starve audio. The pump keeps the first 2 channels (SDL plays only 1/2/4/6/8),
+  interleaves them and pushes them into a `Mutex<JitterBuffer>`. SDL's audio
+  callback (`Speaker`, on SDL's own thread) pulls from it. The pump stops
+  within 100 ms when the video loop ends (also on panic, via a drop guard).
+- **Audio device follows the source.** The format is only known once audio
+  arrives, and SDL's Rust types are `!Send`, so the main loop calls
+  `Speaker::follow_source` every iteration. It opens (or reopens) the device
+  in the source's rate and channel count. SDL is asked for exactly that
+  format (`allowed_changes = 0`) and converts to the hardware's rate itself.
+  A failed open is reported once per format. `VideoWindow::open` takes the
+  `Sdl` context, so video and audio share it.
+- **Jitter buffer / latency.** Playback starts once 60 ms are queued, and an
+  underrun re-primes (silence until 60 ms are queued again). A backlog
+  beyond 200 ms (bursts, or a sender clock faster than the sound card's) is
+  cut to the newest 60 ms. There is no resampling for clock drift: the
+  buffer absorbs it (at 50 ppm, ~20 min until a re-prime when the sender
+  is slow, ~45 min until a cut when it is fast). Audio
+  also has SDL's 1024-sample device buffer (~21 ms), so it plays ~80 ms or
+  more after arrival, while video is shown on arrival. No A/V sync by
+  timestamps.
+- **Audio frames.** `recv_capture_v2` with `NDIlib_audio_frame_v2_t`, which
+  is always planar 32-bit float (no FourCC to check).
 - **Kiosk mode.** `WindowMode` decides fullscreen type and cursor
   visibility; `VideoWindow::enter` applies both, at open and on toggle. The
   window is always created resizable so it stays resizable after leaving
@@ -173,15 +213,21 @@ Key decisions:
 
 - `cargo test`: unit tests for argument parsing, source query matching, the
   frame-rate meter, the stall detector, the UYVY→I420 repacking, window mode
-  toggling and key handling (44 tests).
+  toggling, key handling, audio interleaving and the jitter buffer
+  (65 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
 - End-to-end: `tools/build_test_pattern_sender.sh` builds
   `target/test_pattern_sender` (1080p30 UYVY color bars with a moving white
-  bar, source name "ndiclient test pattern"). Run it, then
+  bar, source name "ndiclient test pattern", plus 48 kHz stereo audio: a
+  1 kHz tone at amplitude 0.25 for the first 200 ms of every second). Run
+  it, then
   `target/release/ndiclient <this Pi's hostname> "ndiclient test pattern"`.
   Screenshots of the Wayland desktop can be taken with `grim`.
+  The audio output can be recorded from the sink's monitor with
+  `pw-record --target <sink> -P '{ stream.capture.sink=true }' --format f32 out.wav`
+  (sink name from `pactl get-default-sink`).
 
 ## Results so far (2026-10-13)
 
@@ -260,6 +306,15 @@ Key decisions:
   so none were listed). Not yet installed with `apt`/`dpkg -i` (needs sudo)
   and not checked with `lintian` (not installed). The changelog and the man
   page (renders cleanly with `man -l`) were added afterwards.
+- Audio (2026-10-14): local test pattern over the HDMI sink (PipeWire 1.4).
+  A 10 s recording of the sink monitor had all 10 beeps, each exactly
+  200 ms long and 1000 ms apart, with no dropouts, at ~1 kHz and amplitude
+  0.250 (unchanged). CPU ~30.5% with audio vs ~28.8% with `--noaudio`
+  (~106 MB RSS both). `--noaudio` showed no PipeWire stream and 4 fewer
+  threads. `SDL_AUDIODRIVER=nonexistent` printed the warning and video
+  continued. SIGTERM exits cleanly (exit 0, the audio thread joins). Not
+  tested: remote sources with audio, A/V sync by eye/ear, long runs (drift),
+  more than 2 channels, rates other than 48 kHz.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -270,10 +325,16 @@ Key decisions:
   the last frame, "Waiting for video..." is printed after 3 s, and NDI
   reconnects automatically if the source returns.
   `Capture::ConnectionLost` only handles NDI's explicit error frame type.
+- Audio is not synchronised to video by timestamps; it plays ~80 ms or more
+  after arrival (jitter buffer + device buffer). Clock drift between sender
+  and sound card is absorbed by the jitter buffer, with an audible cut or
+  gap every few tens of minutes instead of resampling. Only the first two
+  channels are played (no downmix).
 - Unsupported pixel formats (e.g. P216/PA16, which we never request) end the
   program with an error.
 - Hardcoded: SDK path default, 1280x720 initial window, 10 s discovery
-  timeout, 5 s listing duration, 5 s fps report interval, 3 s stall threshold, highest bandwidth.
+  timeout, 5 s listing duration, 5 s fps report interval, 3 s stall threshold, highest bandwidth,
+  60/200 ms audio latency, 1024-sample audio device buffer, 2 played channels.
 - Over Wi-Fi, full-bandwidth 1080p NDI (~90+ Mbit/s) saturates the Pi's
   radio and causes pauses of up to ~12 s. Use wired Ethernet.
 - Discovery relies on mDNS (or an NDI discovery server). Networks that block
@@ -286,6 +347,6 @@ Key decisions:
 
 ## Possible next steps
 
-- Audio (NDI `capture_v3` audio frames → SDL audio queue), likely on its own
-  thread or via NDI FrameSync.
+- A/V sync by timestamps, or NDI FrameSync for drift-free audio (it would
+  also replace the video capture path).
 - Measure with real network sources at 1080p60 and with NDI|HX.

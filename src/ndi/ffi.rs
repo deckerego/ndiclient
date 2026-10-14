@@ -10,6 +10,7 @@ pub type FindInstance = *mut std::ffi::c_void;
 pub type RecvInstance = *mut std::ffi::c_void;
 
 pub const FRAME_TYPE_VIDEO: c_int = 1;
+pub const FRAME_TYPE_AUDIO: c_int = 2;
 pub const FRAME_TYPE_ERROR: c_int = 4;
 
 pub const RECV_COLOR_FORMAT_UYVY_BGRA: c_int = 1;
@@ -54,6 +55,19 @@ pub struct VideoFrameV2 {
     pub timestamp: i64,
 }
 
+/// Planar 32-bit float audio: each channel's samples follow one another.
+#[repr(C)]
+pub struct AudioFrameV2 {
+    pub sample_rate: c_int,
+    pub no_channels: c_int,
+    pub no_samples: c_int,
+    pub timecode: i64,
+    pub data: *mut c_float,
+    pub channel_stride_in_bytes: c_int,
+    pub metadata: *const c_char,
+    pub timestamp: i64,
+}
+
 unsafe extern "C" {
     pub fn NDIlib_initialize() -> bool;
     pub fn NDIlib_destroy();
@@ -71,9 +85,10 @@ unsafe extern "C" {
     pub fn NDIlib_recv_capture_v2(
         instance: RecvInstance,
         video: *mut VideoFrameV2,
-        audio: *mut std::ffi::c_void,
+        audio: *mut AudioFrameV2,
         metadata: *mut std::ffi::c_void,
         timeout_in_ms: u32,
     ) -> c_int;
     pub fn NDIlib_recv_free_video_v2(instance: RecvInstance, video: *const VideoFrameV2);
+    pub fn NDIlib_recv_free_audio_v2(instance: RecvInstance, audio: *const AudioFrameV2);
 }
