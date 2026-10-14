@@ -1,21 +1,31 @@
 //! NDI client: discovers the NDI source with a given device name (and
-//! optionally stream name) and shows its video in a desktop window or
-//! fullscreen. Without
-//! arguments it lists the NDI sources it discovers.
+//! optionally stream name), shows its video in a desktop window or
+//! fullscreen and plays its audio. Without arguments it lists the NDI
+//! sources it discovers.
 
+mod audio_pump;
+mod bridge;
 mod display;
+mod dropout;
 mod frame_rate;
 mod i420;
+mod jitter_buffer;
 mod ndi;
 mod picture;
+mod sound;
+mod speaker;
 mod stall;
 
+use std::collections::HashSet;
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use display::{VideoWindow, WindowMode, WindowStatus};
 use frame_rate::FrameRateMeter;
+use jitter_buffer::{AudioLatency, JitterBuffer};
 use ndi::{Capture, NdiRuntime, Receiver, SourceFinder, SourceQuery};
+use speaker::Speaker;
 use stall::StallDetector;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -25,17 +35,41 @@ const LISTING_DURATION: Duration = Duration::from_secs(5);
 const CAPTURE_TIMEOUT: Duration = Duration::from_millis(100);
 const FRAME_RATE_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 const STALL_THRESHOLD: Duration = Duration::from_secs(3);
+/// Audio plays this far behind its arrival. Unbroken audio matters more
+/// than closeness to the video (shown as it arrives), so it starts beyond
+/// the arrival gaps seen on a loaded Wi-Fi and underruns raise it further.
+const AUDIO_LATENCY: AudioLatency = AudioLatency {
+    start: Duration::from_millis(100),
+    limit: Duration::from_millis(400),
+    headroom: Duration::from_millis(150),
+};
+/// Short enough not to be heard as a fade, long enough not to click.
+const AUDIO_FADE: Duration = Duration::from_millis(5);
 const FULLSCREEN_OPTION: &str = "--fullscreen";
+const NO_AUDIO_OPTION: &str = "--noaudio";
 const OPTION_PREFIX: &str = "--";
-const USAGE: &str = "usage: ndiclient [--fullscreen] <device-name> [stream-name]
-       ndiclient                              (list discovered sources)";
+const USAGE: &str = "usage: ndiclient [--fullscreen] [--noaudio] <device-name> [stream-name]
+       ndiclient                                         (list discovered sources)";
 
 enum Command {
     ListSources,
     ShowVideo {
         query: SourceQuery,
-        window_mode: WindowMode,
+        options: ViewOptions,
     },
+}
+
+/// Whether the source's audio is played. Without it, no audio device is opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AudioMode {
+    Play,
+    Mute,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ViewOptions {
+    window_mode: WindowMode,
+    audio_mode: AudioMode,
 }
 
 fn main() -> ExitCode {
@@ -58,9 +92,7 @@ fn run() -> Result<(), String> {
             list_sources(&finder);
             Ok(())
         }
-        Command::ShowVideo { query, window_mode } => {
-            show_video(&runtime, &finder, &query, window_mode)
-        }
+        Command::ShowVideo { query, options } => show_video(&runtime, &finder, &query, options),
     }
 }
 
@@ -68,27 +100,37 @@ fn parse_arguments(arguments: &[String]) -> Result<Command, String> {
     let (options, names): (Vec<&String>, Vec<&String>) = arguments
         .iter()
         .partition(|argument| argument.starts_with(OPTION_PREFIX));
-    let window_mode = parse_window_mode(&options)?;
-    match (names.as_slice(), window_mode) {
-        ([], WindowMode::Windowed) => Ok(Command::ListSources),
-        ([device_name], _) => Ok(Command::ShowVideo {
+    match names.as_slice() {
+        [] if options.is_empty() => Ok(Command::ListSources),
+        [device_name] => Ok(Command::ShowVideo {
             query: SourceQuery::any_stream_on(device_name.to_string()),
-            window_mode,
+            options: parse_options(&options)?,
         }),
-        ([device_name, stream_name], _) => Ok(Command::ShowVideo {
+        [device_name, stream_name] => Ok(Command::ShowVideo {
             query: SourceQuery::named_stream_on(device_name.to_string(), stream_name.to_string()),
-            window_mode,
+            options: parse_options(&options)?,
         }),
         _ => Err(USAGE.to_string()),
     }
 }
 
-fn parse_window_mode(options: &[&String]) -> Result<WindowMode, String> {
-    match options {
-        [] => Ok(WindowMode::Windowed),
-        [option] if *option == FULLSCREEN_OPTION => Ok(WindowMode::Fullscreen),
-        _ => Err(USAGE.to_string()),
+fn parse_options(options: &[&String]) -> Result<ViewOptions, String> {
+    let distinct: HashSet<&&String> = options.iter().collect();
+    if distinct.len() != options.len() {
+        return Err(USAGE.to_string());
     }
+    let mut parsed = ViewOptions {
+        window_mode: WindowMode::Windowed,
+        audio_mode: AudioMode::Play,
+    };
+    for option in options {
+        match option.as_str() {
+            FULLSCREEN_OPTION => parsed.window_mode = WindowMode::Fullscreen,
+            NO_AUDIO_OPTION => parsed.audio_mode = AudioMode::Mute,
+            _ => return Err(USAGE.to_string()),
+        }
+    }
+    Ok(parsed)
 }
 
 fn list_sources(finder: &SourceFinder) {
@@ -106,23 +148,53 @@ fn show_video(
     runtime: &NdiRuntime,
     finder: &SourceFinder,
     query: &SourceQuery,
-    window_mode: WindowMode,
+    options: ViewOptions,
 ) -> Result<(), String> {
     println!("Searching for {query}...");
     let source = finder.find_source(query, DISCOVERY_TIMEOUT)?;
     println!("Connecting to \"{}\"", source.name());
 
     let receiver = Receiver::connect(runtime, &source)?;
-    let mut window = VideoWindow::open(&source.name(), window_mode)?;
-    stream_video(&receiver, &mut window)
+    let sdl = sdl2::init()?;
+    let mut window = VideoWindow::open(&sdl, &source.name(), options.window_mode)?;
+    match options.audio_mode {
+        AudioMode::Play => stream_video_and_audio(&sdl, &receiver, &mut window),
+        AudioMode::Mute => stream_video(&receiver, &mut window, None),
+    }
 }
 
-fn stream_video(receiver: &Receiver, window: &mut VideoWindow) -> Result<(), String> {
+/// Plays the audio alongside the video; without a usable audio output, the video still shows.
+fn stream_video_and_audio(
+    sdl: &sdl2::Sdl,
+    receiver: &Receiver,
+    window: &mut VideoWindow,
+) -> Result<(), String> {
+    let buffer = Arc::new(Mutex::new(JitterBuffer::new(AUDIO_LATENCY, AUDIO_FADE)));
+    match Speaker::new(sdl, Arc::clone(&buffer)) {
+        Ok(mut speaker) => audio_pump::run_alongside(receiver, &buffer, || {
+            stream_video(receiver, window, Some(&mut speaker))
+        }),
+        Err(error) => {
+            report_audio_failure(&error);
+            stream_video(receiver, window, None)
+        }
+    }
+}
+
+fn stream_video(
+    receiver: &Receiver,
+    window: &mut VideoWindow,
+    mut speaker: Option<&mut Speaker>,
+) -> Result<(), String> {
     let mut frame_rate = FrameRateMeter::new(FRAME_RATE_REPORT_INTERVAL);
     let mut stall = StallDetector::new(STALL_THRESHOLD);
     while window.handle_events()? == WindowStatus::Open {
+        if let Some(speaker) = speaker.as_deref_mut() {
+            follow_audio_format(speaker);
+            report_audio_latency(speaker);
+        }
         match receiver.capture_video(CAPTURE_TIMEOUT) {
-            Capture::Video(frame) => {
+            Capture::Frame(frame) => {
                 show_frame(&frame, window)?;
                 stall.record_frame();
                 report_frame_rate(&mut frame_rate);
@@ -141,6 +213,24 @@ fn show_frame(frame: &ndi::VideoFrame, window: &mut VideoWindow) -> Result<(), S
         Some(picture) => window.show(&picture),
         None => Err("the NDI source sent an unsupported pixel format".to_string()),
     }
+}
+
+fn follow_audio_format(speaker: &mut Speaker) {
+    match speaker.follow_source() {
+        Ok(Some(format)) => println!("Playing audio: {format}"),
+        Ok(None) => {}
+        Err(error) => report_audio_failure(&error),
+    }
+}
+
+fn report_audio_latency(speaker: &mut Speaker) {
+    if let Some(latency) = speaker.raised_latency() {
+        println!("Audio ran dry, now buffering {} ms", latency.as_millis());
+    }
+}
+
+fn report_audio_failure(error: &str) {
+    eprintln!("ndiclient: cannot play audio, continuing without it: {error}");
 }
 
 fn report_frame_rate(frame_rate: &mut FrameRateMeter) {
@@ -181,45 +271,79 @@ mod tests {
         assert!(matches!(command, Ok(Command::ShowVideo { .. })));
     }
 
+    fn options(values: &[&str]) -> Option<ViewOptions> {
+        match parse_arguments(&arguments(values)) {
+            Ok(Command::ShowVideo { options, .. }) => Some(options),
+            _ => None,
+        }
+    }
+
+    fn window_mode(values: &[&str]) -> Option<WindowMode> {
+        options(values).map(|options| options.window_mode)
+    }
+
+    fn audio_mode(values: &[&str]) -> Option<AudioMode> {
+        options(values).map(|options| options.audio_mode)
+    }
+
     #[test]
     fn video_is_windowed_by_default() {
-        let command = parse_arguments(&arguments(&["STUDIO"]));
-        assert!(matches!(
-            command,
-            Ok(Command::ShowVideo {
-                window_mode: WindowMode::Windowed,
-                ..
-            })
-        ));
+        assert_eq!(window_mode(&["STUDIO"]), Some(WindowMode::Windowed));
     }
 
     #[test]
     fn fullscreen_option_shows_video_fullscreen() {
-        let command = parse_arguments(&arguments(&["--fullscreen", "STUDIO", "OBS PGM"]));
-        assert!(matches!(
-            command,
-            Ok(Command::ShowVideo {
-                window_mode: WindowMode::Fullscreen,
-                ..
-            })
-        ));
+        let mode = window_mode(&["--fullscreen", "STUDIO", "OBS PGM"]);
+        assert_eq!(mode, Some(WindowMode::Fullscreen));
     }
 
     #[test]
     fn fullscreen_option_may_follow_names() {
-        let command = parse_arguments(&arguments(&["STUDIO", "--fullscreen"]));
-        assert!(matches!(
-            command,
-            Ok(Command::ShowVideo {
-                window_mode: WindowMode::Fullscreen,
-                ..
-            })
-        ));
+        let mode = window_mode(&["STUDIO", "--fullscreen"]);
+        assert_eq!(mode, Some(WindowMode::Fullscreen));
     }
 
     #[test]
     fn fullscreen_option_without_device_is_rejected() {
         assert!(parse_arguments(&arguments(&["--fullscreen"])).is_err());
+    }
+
+    #[test]
+    fn audio_plays_by_default() {
+        assert_eq!(audio_mode(&["STUDIO"]), Some(AudioMode::Play));
+    }
+
+    #[test]
+    fn noaudio_option_mutes_audio() {
+        let mode = audio_mode(&["--noaudio", "STUDIO", "OBS PGM"]);
+        assert_eq!(mode, Some(AudioMode::Mute));
+    }
+
+    #[test]
+    fn noaudio_option_keeps_window_mode() {
+        let mode = window_mode(&["STUDIO", "--noaudio"]);
+        assert_eq!(mode, Some(WindowMode::Windowed));
+    }
+
+    #[test]
+    fn options_combine_in_any_order() {
+        let parsed = options(&["--noaudio", "STUDIO", "--fullscreen"]);
+        let expected = ViewOptions {
+            window_mode: WindowMode::Fullscreen,
+            audio_mode: AudioMode::Mute,
+        };
+        assert_eq!(parsed, Some(expected));
+    }
+
+    #[test]
+    fn noaudio_option_without_device_is_rejected() {
+        assert!(parse_arguments(&arguments(&["--noaudio"])).is_err());
+    }
+
+    #[test]
+    fn repeated_noaudio_option_is_rejected() {
+        let command = parse_arguments(&arguments(&["--noaudio", "STUDIO", "--noaudio"]));
+        assert!(command.is_err());
     }
 
     #[test]

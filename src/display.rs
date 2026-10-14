@@ -2,13 +2,13 @@
 //! F11 or F switches between windowed and fullscreen; fullscreen hides the
 //! mouse cursor so the screen can serve as a kiosk display.
 
-use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseUtil;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, Texture, TextureAccess, TextureCreator};
 use sdl2::video::{FullscreenType, Window, WindowContext};
+use sdl2::{EventPump, Sdl};
 
 use crate::i420::I420Frame;
 use crate::picture::{Dimensions, Picture, PixelLayout};
@@ -109,8 +109,7 @@ pub struct VideoWindow {
 }
 
 impl VideoWindow {
-    pub fn open(title: &str, mode: WindowMode) -> Result<Self, String> {
-        let sdl = sdl2::init()?;
+    pub fn open(sdl: &Sdl, title: &str, mode: WindowMode) -> Result<Self, String> {
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "linear");
         let video = sdl.video()?;
         // Resizable also in fullscreen, so the window can be resized after toggling out.

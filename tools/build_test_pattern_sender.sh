@@ -8,5 +8,5 @@ PROJECT_DIR="$(dirname "$0")/.."
 mkdir -p "$PROJECT_DIR/target"
 gcc -std=c11 -O2 -Wall -Wextra -I"$SDK_DIR/include" \
     "$PROJECT_DIR/tools/test_pattern_sender.c" \
-    -L"$LIBRARY_DIR" -Wl,-rpath,"$LIBRARY_DIR" -lndi \
+    -L"$LIBRARY_DIR" -Wl,-rpath,"$LIBRARY_DIR" -lndi -lm \
     -o "$PROJECT_DIR/target/test_pattern_sender"
