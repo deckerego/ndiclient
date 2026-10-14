@@ -1,0 +1,109 @@
+name: APT repository
+
+# Publishing a GitHub release (tagged vX.Y.Z, matching Cargo.toml) builds the
+# package and adds it to the APT repository on the gh-pages branch, which
+# GitHub Pages serves. Draft releases don't run it until they are published.
+on:
+  release:
+    types: [published]
+
+# Publishing commits to gh-pages; two runs at once would race on the push.
+concurrency:
+  group: apt-repository
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04-arm
+    # Built on the Debian release Raspberry Pi OS is based on, so
+    # dpkg-shlibdeps derives dependencies that exist there.
+    container: debian:trixie
+    permissions:
+      contents: write
+    env:
+      NDI_SDK_URL: https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz
+      NDI_SDK_DIR: /opt/ndi/NDI SDK for Linux
+      APT_REPO_DIR: apt-repo
+      PAGES_BRANCH: gh-pages
+    steps:
+      # libndi links against Avahi's client libraries (NDI's mDNS discovery).
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl git libsdl2-dev \
+            libavahi-client3 dpkg-dev apt-utils gnupg gpgv
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check the tag matches Cargo.toml
+        run: |
+          cargo_version="$(cargo pkgid | sed 's/.*[#@]//')"
+          if [ "$GITHUB_REF_NAME" != "v$cargo_version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $cargo_version" >&2
+            exit 1
+          fi
+
+      # The installer shows the NDI SDK license and asks for agreement. The
+      # repository owner has accepted it; piping "y" records that acceptance
+      # for this build. Its output (license text, file list) is discarded.
+      - name: Install the NDI SDK
+        run: |
+          install -d "$(dirname "$NDI_SDK_DIR")"
+          cd "$(dirname "$NDI_SDK_DIR")"
+          curl -fsSL "$NDI_SDK_URL" | tar xz
+          echo y | PAGER=cat sh Install_NDI_SDK_v6_Linux.sh > /dev/null
+          cat "$NDI_SDK_DIR/Version.txt"
+
+      - name: Build the package
+        run: packaging/build_deb.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian-package
+          path: target/debian/*.deb
+
+      - name: Check out the APT repository
+        run: |
+          # The container runs as root on a workspace the runner user owns.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/$APT_REPO_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$PAGES_BRANCH"; then
+            git fetch --depth 1 origin "$PAGES_BRANCH"
+            git worktree add "$APT_REPO_DIR" FETCH_HEAD -B "$PAGES_BRANCH"
+          else
+            git worktree add --orphan -b "$PAGES_BRANCH" "$APT_REPO_DIR"
+          fi
+
+      - name: Import the signing key
+        env:
+          SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+        run: |
+          echo "$SIGNING_PRIVATE_KEY" | gpg --batch --import
+          fingerprint="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ { print $10; exit }')"
+          echo "APT_SIGNING_KEY=$fingerprint" >> "$GITHUB_ENV"
+
+      - name: Update the APT repository
+        run: packaging/update_apt_repo.sh "$APT_REPO_DIR" target/debian/*.deb
+
+      # Verifying against the published public key catches a secret and a
+      # variable that belong to different key pairs before users see it.
+      - name: Verify the signature with the public key
+        env:
+          SIGNING_PUBLIC_KEY: ${{ vars.SIGNING_PUBLIC_KEY }}
+        run: |
+          echo "$SIGNING_PUBLIC_KEY" | gpg --dearmor > "$RUNNER_TEMP/public-key.gpg"
+          gpgv --keyring "$RUNNER_TEMP/public-key.gpg" "$APT_REPO_DIR/dists/trixie/InRelease"
+
+      # .nojekyll makes Pages serve the files as they are.
+      - name: Publish the APT repository
+        run: |
+          cd "$APT_REPO_DIR"
+          touch .nojekyll
+          git add --all
+          git commit -m "Publish ndiclient from ${GITHUB_REF_NAME} (${GITHUB_SHA})"
+          git push origin "$PAGES_BRANCH"

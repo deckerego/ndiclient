@@ -30,6 +30,7 @@ target/release/ndiclient STUDIO "OBS PGM"
 target/release/ndiclient studio.local "OBS PGM"
 target/release/ndiclient STUDIO
 target/release/ndiclient --fullscreen STUDIO "OBS PGM"
+packaging/build_deb.sh
 ```
 
 - Without arguments: discovers for 5 s, prints each source's full NDI name
@@ -68,6 +69,35 @@ target/release/ndiclient --fullscreen STUDIO "OBS PGM"
 - `build.rs` links `libndi` from the SDK directory and embeds that directory as
   an rpath, so no `LD_LIBRARY_PATH` or system install is needed. Override the
   SDK location with the `NDI_SDK_DIR` environment variable at build time.
+  `NDI_RUNTIME_DIR` replaces the rpath with another directory (used by the
+  Debian package).
+- `packaging/build_deb.sh` builds `target/debian/ndiclient_<version>_<arch>.deb`
+  with plain `dpkg-deb` (no debhelper, no cargo-deb). It builds into its own
+  target dir (`target/debian/cargo`) with `NDI_RUNTIME_DIR=/usr/lib/ndiclient`,
+  stages `/usr/bin/ndiclient`, the NDI runtime in `/usr/lib/ndiclient` (the
+  SDK docs say to keep NDI libraries in the application's folder, not the
+  system path), docs/licenses and `changelog.Debian.gz` in
+  `/usr/share/doc/ndiclient` and the man page `ndiclient.1.gz`, then fills
+  `packaging/debian/control.in`. `Depends` comes from `dpkg-shlibdeps`
+  (needs `dpkg-dev`); its warning about libndi linking libpthread is NDI's
+  and harmless. The package version is the top entry of
+  `packaging/debian/changelog`; the build fails if its upstream part differs
+  from Cargo.toml's version, so bump both together (and add a changelog
+  entry). Keep `packaging/debian/ndiclient.1` in sync with the usage.
+- Distribution: `.github/workflows/apt-repository.yml` builds the package in
+  a `debian:trixie` container on GitHub's `ubuntu-24.04-arm` runner. It
+  downloads the NDI SDK from NDI's public URL and runs its installer with
+  `y` piped in (the repository owner accepted the EULA). It runs only when
+  a GitHub release is published (its tag `vX.Y.Z` must match Cargo.toml);
+  it then runs `packaging/update_apt_repo.sh` on the `gh-pages` branch and
+  pushes it; GitHub Pages serves it at https://deckerego.github.io/ndiclient
+  (distribution `trixie`, component `main`). Releases created with the
+  workflow `GITHUB_TOKEN` don't trigger it (GitHub prevents that). Signing uses the secret `SIGNING_PRIVATE_KEY` (must have no
+  passphrase); the signature is checked against the variable
+  `SIGNING_PUBLIC_KEY`. `update_apt_repo.sh` keeps old packages in
+  `pool/` and refuses to replace a `.deb` with different content, so a
+  rebuild of one version needs a new changelog entry. It needs `apt-utils`
+  and `gnupg`, and the key id in `APT_SIGNING_KEY`.
 - The `sdl2` crate is used with the `unsafe_textures` feature so a texture can
   live in the same struct as its `TextureCreator` (no self-referential lifetimes).
 - NDI bindings are hand-written (`src/ndi/ffi.rs`), not bindgen, to avoid a
@@ -92,6 +122,9 @@ src/ndi/query.rs     SourceQuery: device + optional stream name, matching rules
 src/ndi/finder.rs    SourceFinder / SourceDescriptor: list sources, find one matching a query
 src/ndi/receiver.rs  Receiver / VideoFrame / Capture: receive video frames
 tools/               test-pattern NDI sender used for development (C)
+packaging/           build_deb.sh, update_apt_repo.sh; Debian control
+                     template, copyright, changelog and man page
+                     (packaging/debian/)
 ```
 
 Key decisions:
@@ -211,6 +244,13 @@ Key decisions:
   a desktop screenshot) shows no cursor over the picture. Windowed mode still
   shows it. The F11/F toggle was not tested by injected keypress (no
   `wtype`/`ydotool`); its key mapping is covered by unit tests.
+- Debian package (2026-10-14): `packaging/build_deb.sh` builds
+  `ndiclient_0.1.0-1_arm64.deb` (~1.4 MB). Contents, permissions (root-owned),
+  RUNPATH `/usr/lib/ndiclient` and the generated `Depends` were checked. The
+  extracted binary ran discovery with the bundled libndi (no sender was live,
+  so none were listed). Not yet installed with `apt`/`dpkg -i` (needs sudo)
+  and not checked with `lintian` (not installed). The changelog and the man
+  page (renders cleanly with `man -l`) were added afterwards.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
