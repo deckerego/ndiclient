@@ -93,6 +93,7 @@ target/release/ndiclient --fullscreen STUDIO "OBS PGM"
 src/main.rs          argument parsing (Command, --fullscreen), wiring,
                      source listing, main capture/display loop
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
+src/i420.rs          I420Frame: repacks UYVY into planar I420 for the GPU
 src/display.rs       VideoWindow / WindowMode: SDL2 window or fullscreen,
                      streaming texture, letterboxing
 src/frame_rate.rs    FrameRateMeter: periodic fps reporting
@@ -117,9 +118,13 @@ Key decisions:
   `p_extra_ips`, which also worked without multicast; that was removed.
 - **Black window on open.** Wayland maps a window only after its first
   present, so `VideoWindow::open` presents a cleared (black) frame.
-- **Pixel format.** The receiver asks for `UYVY_BGRA`. NDI decodes to UYVY
-  natively, and SDL uploads UYVY textures directly, so the GPU does the YUV→RGB
-  conversion and scaling. BGRA (only sent by sources with alpha) maps to SDL
+- **Pixel format.** The receiver asks for `UYVY_BGRA`, because NDI decodes to
+  UYVY natively. SDL picks its desktop `opengl` renderer here, which has no
+  native UYVY texture: SDL would convert UYVY→RGB on the CPU (~17 ms per 1080p
+  frame). So `I420Frame` repacks UYVY into I420 (~4 ms, buffers reused) and
+  SDL's shader does the YUV→RGB conversion and scaling on the GPU. Vertical
+  chroma resolution is halved (row pairs averaged) and an odd last row or
+  column is dropped. BGRA (only sent by sources with alpha) maps to SDL
   `ARGB8888`. `allow_video_fields = false` makes NDI deinterlace for us.
 - **Lifetimes enforce teardown order.** `SourceFinder` and `Receiver` borrow
   `NdiRuntime`; `VideoFrame` borrows `Receiver` and frees its buffer on drop.
@@ -132,7 +137,7 @@ Key decisions:
 ## Testing
 
 - `cargo test`: unit tests for argument parsing, source query matching, the
-  frame-rate meter and the stall detector (27 tests).
+  frame-rate meter, the stall detector and the UYVY→I420 repacking (34 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
@@ -190,6 +195,24 @@ Key decisions:
   the 1920x1080 HDMI display (screenshot via `grim`) at ~30 fps. The mouse
   cursor stays visible. Escape was not tested by injected keypress (no
   `wtype`/`ydotool` installed); it uses the same event handling as windowed.
+- Profiling and the I420 upload (2026-10-13): the 1080p30 `RONINEGO.LOCAL
+  (OBS PGM)` source over Wi-Fi.
+  - CPU per frame before the change: `texture.update` ~17 ms (SDL's CPU
+    UYVY→RGB), capture/present negligible. After: repack + upload ~4.6 ms.
+  - Same source, back-to-back 20 s samples: 81–82% → 47–48% of one core,
+    RSS ~123 → ~105 MB, fps unchanged (30). Local test pattern: 64% → 27%,
+    116 → 95 MB. Colour bars verified by screenshot, also in fullscreen.
+  - Pauses after 30–60 s were reproduced: freezes of 4.3 s and 12.1 s plus
+    several 0.3–1 s hitches, and ~100–150 ms late frames about twice a
+    second (hidden by the 5 s fps average). In every pause NDI's own
+    counters showed 0 frames received, 0 dropped, empty queue, so the client
+    was idle, not stuck. A concurrent ping to the sender lost ~10% with
+    100–300 ms RTT, and the loss lined up with the video pauses; without the
+    stream the same ping is clean (0% loss, 17 ms). The stream averages
+    92 Mbit/s (peaks 137) on the Pi's BCM43455 Wi-Fi (433 Mbit/s link,
+    -55 dBm, power save on), close to what it sustains. Cause: Wi-Fi
+    congestion, not the client. Fix with wired Ethernet or a lower-bitrate
+    source (NDI|HX).
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -204,6 +227,8 @@ Key decisions:
   program with an error.
 - Hardcoded: SDK path default, 1280x720 initial window, 10 s discovery
   timeout, 5 s listing duration, 5 s fps report interval, 3 s stall threshold, highest bandwidth.
+- Over Wi-Fi, full-bandwidth 1080p NDI (~90+ Mbit/s) saturates the Pi's
+  radio and causes pauses of up to ~12 s. Use wired Ethernet.
 - Discovery relies on mDNS (or an NDI discovery server). Networks that block
   multicast need a discovery server; there is no IP fallback any more.
 - Stream name matching is exact and case-sensitive; no partial or wildcard

@@ -8,7 +8,7 @@ pub enum PixelLayout {
     Bgra,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Dimensions {
     pub width: u32,
     pub height: u32,

@@ -7,6 +7,7 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, Texture, TextureAccess, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
+use crate::i420::I420Frame;
 use crate::picture::{Dimensions, Picture, PixelLayout};
 
 const INITIAL_WINDOW_SIZE: Dimensions = Dimensions {
@@ -14,16 +15,20 @@ const INITIAL_WINDOW_SIZE: Dimensions = Dimensions {
     height: 720,
 };
 
-/// The texture currently on the GPU and the picture shape it was made for.
+/// SDL names packed formats by their 32-bit word layout, so B G R A in memory
+/// on a little-endian CPU is ARGB8888.
+const BGRA_TEXTURE_FORMAT: PixelFormatEnum = PixelFormatEnum::ARGB8888;
+
+/// The texture currently on the GPU and the image shape it was made for.
 struct StreamTexture {
     texture: Texture,
-    layout: PixelLayout,
+    format: PixelFormatEnum,
     dimensions: Dimensions,
 }
 
 impl StreamTexture {
-    fn fits(&self, picture: &Picture) -> bool {
-        self.layout == picture.layout && self.dimensions == picture.dimensions
+    fn fits(&self, format: PixelFormatEnum, dimensions: Dimensions) -> bool {
+        self.format == format && self.dimensions == dimensions
     }
 }
 
@@ -39,6 +44,7 @@ pub struct VideoWindow {
     texture_creator: TextureCreator<WindowContext>,
     event_pump: EventPump,
     stream_texture: Option<StreamTexture>,
+    i420_frame: I420Frame,
 }
 
 impl VideoWindow {
@@ -72,6 +78,7 @@ impl VideoWindow {
             texture_creator,
             event_pump,
             stream_texture: None,
+            i420_frame: I420Frame::default(),
         })
     }
 
@@ -90,15 +97,43 @@ impl VideoWindow {
     }
 
     pub fn show(&mut self, picture: &Picture) -> Result<(), String> {
-        self.prepare_texture_for(picture)?;
-        let texture = &mut self
-            .stream_texture
-            .as_mut()
-            .expect("texture prepared above")
-            .texture;
-        texture
+        match picture.layout {
+            PixelLayout::Uyvy => self.upload_as_i420(picture)?,
+            PixelLayout::Bgra => self.upload_bgra(picture)?,
+        }
+        self.present()
+    }
+
+    fn upload_as_i420(&mut self, picture: &Picture) -> Result<(), String> {
+        self.i420_frame.fill_from_uyvy(picture);
+        self.prepare_texture(PixelFormatEnum::IYUV, self.i420_frame.dimensions())?;
+        let frame = &self.i420_frame;
+        prepared_texture(&mut self.stream_texture)
+            .update_yuv(
+                None,
+                frame.luma(),
+                frame.luma_pitch(),
+                frame.blue_chroma(),
+                frame.chroma_pitch(),
+                frame.red_chroma(),
+                frame.chroma_pitch(),
+            )
+            .map_err(|error| error.to_string())
+    }
+
+    fn upload_bgra(&mut self, picture: &Picture) -> Result<(), String> {
+        self.prepare_texture(BGRA_TEXTURE_FORMAT, picture.dimensions)?;
+        prepared_texture(&mut self.stream_texture)
             .update(None, picture.pixels, picture.line_stride)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| error.to_string())
+    }
+
+    fn present(&mut self) -> Result<(), String> {
+        let texture = &self
+            .stream_texture
+            .as_ref()
+            .expect("texture prepared by the upload")
+            .texture;
         self.canvas.clear();
         self.canvas.copy(texture, None, None)?;
         self.canvas.present();
@@ -106,28 +141,27 @@ impl VideoWindow {
     }
 
     /// Recreates the texture whenever the source changes resolution or format.
-    fn prepare_texture_for(&mut self, picture: &Picture) -> Result<(), String> {
+    fn prepare_texture(
+        &mut self,
+        format: PixelFormatEnum,
+        dimensions: Dimensions,
+    ) -> Result<(), String> {
         if self
             .stream_texture
             .as_ref()
-            .is_some_and(|current| current.fits(picture))
+            .is_some_and(|current| current.fits(format, dimensions))
         {
             return Ok(());
         }
-        let Dimensions { width, height } = picture.dimensions;
+        let Dimensions { width, height } = dimensions;
         let texture = self
             .texture_creator
-            .create_texture(
-                sdl_pixel_format(picture.layout),
-                TextureAccess::Streaming,
-                width,
-                height,
-            )
+            .create_texture(format, TextureAccess::Streaming, width, height)
             .map_err(|error| error.to_string())?;
         self.replace_texture(StreamTexture {
             texture,
-            layout: picture.layout,
-            dimensions: picture.dimensions,
+            format,
+            dimensions,
         });
         // Logical size makes SDL scale the picture to the window while keeping its aspect ratio.
         self.canvas
@@ -143,11 +177,9 @@ impl VideoWindow {
     }
 }
 
-/// SDL names packed formats by their 32-bit word layout, so B G R A in memory
-/// on a little-endian CPU is ARGB8888.
-fn sdl_pixel_format(layout: PixelLayout) -> PixelFormatEnum {
-    match layout {
-        PixelLayout::Uyvy => PixelFormatEnum::UYVY,
-        PixelLayout::Bgra => PixelFormatEnum::ARGB8888,
-    }
+fn prepared_texture(stream_texture: &mut Option<StreamTexture>) -> &mut Texture {
+    &mut stream_texture
+        .as_mut()
+        .expect("texture prepared before upload")
+        .texture
 }
