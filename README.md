@@ -48,6 +48,20 @@ In fullscreen the mouse cursor is hidden, so the screen shows only the video
 (kiosk mode). Press F11 or F to switch between window and fullscreen while
 the video plays. Close the window or press Escape to quit.
 
+If mDNS discovery doesn't find the source, for example because multicast gets
+lost between Wi-Fi and wired Ethernet, give the IP address of the source with
+`--ipaddr`. That address is then asked for its sources directly, and only
+sources at that address are used, so it also picks the network interface of a
+source that has several:
+```sh
+target/release/ndiclient --ipaddr 192.168.1.20 STUDIO "OBS PGM"
+```
+
+Without a device name, `--ipaddr` lists the sources at that address:
+```sh
+target/release/ndiclient --ipaddr 192.168.1.20
+```
+
 The device name is matched ignoring case; the stream name must match exactly.
 If no matching source is discovered within 10 seconds, the error lists the
 sources that were discovered.

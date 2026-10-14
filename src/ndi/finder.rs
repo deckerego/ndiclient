@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use super::ffi;
 use super::query::SourceQuery;
 use super::runtime::NdiRuntime;
+use super::scope::DiscoveryScope;
 
 /// An NDI source copied out of the finder, so it outlives the finder's buffers.
 pub struct SourceDescriptor {
@@ -50,29 +51,38 @@ impl SourceDescriptor {
     fn satisfies(&self, query: &SourceQuery) -> bool {
         query.matches(&self.name())
     }
+
+    fn is_within(&self, scope: DiscoveryScope) -> bool {
+        scope.includes(&self.url_address.to_string_lossy())
+    }
 }
 
 /// Discovers NDI sources using NDI's own discovery (mDNS, or a discovery
-/// server if NDI is configured to use one).
+/// server if NDI is configured to use one), and reports only those within
+/// its scope.
 pub struct SourceFinder<'runtime> {
     instance: ffi::FindInstance,
+    scope: DiscoveryScope,
     _runtime: &'runtime NdiRuntime,
 }
 
 impl<'runtime> SourceFinder<'runtime> {
-    pub fn new(runtime: &'runtime NdiRuntime) -> Result<Self, String> {
+    pub fn new(runtime: &'runtime NdiRuntime, scope: DiscoveryScope) -> Result<Self, String> {
+        let extra_ips = scope.extra_ips();
         let settings = ffi::FindCreate {
             show_local_sources: true,
             groups: ptr::null(),
-            extra_ips: ptr::null(),
+            extra_ips: extra_ips.as_ref().map_or(ptr::null(), |ips| ips.as_ptr()),
         };
-        // SAFETY: `settings` outlives the call; null strings select NDI's defaults.
+        // SAFETY: `settings` and the strings it points to outlive the call;
+        // NDI copies them during creation. Null strings select NDI's defaults.
         let instance = unsafe { ffi::NDIlib_find_create_v2(&settings) };
         if instance.is_null() {
             return Err("NDI failed to create a source finder".to_string());
         }
         Ok(Self {
             instance,
+            scope,
             _runtime: runtime,
         })
     }
@@ -93,7 +103,7 @@ impl<'runtime> SourceFinder<'runtime> {
             }
             self.wait_for_change(deadline);
         }
-        Err(not_found_message(query, timeout, &seen_names))
+        Err(self.not_found_message(query, timeout, &seen_names))
     }
 
     /// Always waits the full `duration`: NDI cannot tell when every source on
@@ -129,16 +139,26 @@ impl<'runtime> SourceFinder<'runtime> {
         raw_sources
             .iter()
             .filter_map(|raw| unsafe { SourceDescriptor::copy_from(raw) })
+            .filter(|source| source.is_within(self.scope))
             .collect()
     }
-}
 
-fn not_found_message(query: &SourceQuery, timeout: Duration, seen_names: &[String]) -> String {
-    let not_found = format!("Did not find {query} within {timeout:?}");
-    if seen_names.is_empty() {
-        return format!("{not_found}. No NDI sources were discovered");
+    fn not_found_message(
+        &self,
+        query: &SourceQuery,
+        timeout: Duration,
+        seen_names: &[String],
+    ) -> String {
+        let location = self.scope.location_suffix();
+        let not_found = format!("Did not find {query}{location} within {timeout:?}");
+        if seen_names.is_empty() {
+            return format!("{not_found}. No NDI sources were discovered{location}");
+        }
+        format!(
+            "{not_found}. Sources discovered{location}: {}",
+            seen_names.join(", ")
+        )
     }
-    format!("{not_found}. Discovered sources: {}", seen_names.join(", "))
 }
 
 /// De-duplicated and sorted, because NDI can list one source more than once
