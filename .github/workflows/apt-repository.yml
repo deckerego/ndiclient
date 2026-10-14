@@ -13,19 +13,24 @@ concurrency:
   group: apt-repository
   cancel-in-progress: false
 
+# Actions are pinned to commit SHAs and the image to a digest, so a moved tag
+# can't change what runs. The comments name the version each pin was taken from.
 jobs:
-  package:
+  # Runs third-party code (the NDI installer, crate build scripts) as root,
+  # so it gets no secrets and only a read-only token.
+  build:
     runs-on: ubuntu-24.04-arm
     # Built on the Debian release Raspberry Pi OS is based on, so
     # dpkg-shlibdeps derives dependencies that exist there.
-    container: debian:trixie
+    container: &debian debian:trixie@sha256:913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5
     permissions:
-      contents: write
+      contents: read
     env:
       NDI_SDK_URL: https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz
+      # SDK v6.3.2. NDI replaces the download in place, so a new SDK release
+      # fails the check: review it, update the checksum and the bindings.
+      NDI_SDK_SHA256: f0314f245446defc488b63ceb4689acf1a965aeefdadacb70571bb216a8cc183
       NDI_SDK_DIR: /opt/ndi/NDI SDK for Linux
-      APT_REPO_DIR: apt-repo
-      PAGES_BRANCH: gh-pages
     steps:
       # libndi links against Avahi's client libraries (NDI's mDNS discovery).
       - name: Install build tools
@@ -33,11 +38,13 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential ca-certificates curl git libsdl2-dev \
-            libavahi-client3 dpkg-dev apt-utils gnupg gpgv
+            libavahi-client3 dpkg-dev
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
 
       - name: Check the tag matches Cargo.toml
         run: |
@@ -54,17 +61,47 @@ jobs:
         run: |
           install -d "$(dirname "$NDI_SDK_DIR")"
           cd "$(dirname "$NDI_SDK_DIR")"
-          curl -fsSL "$NDI_SDK_URL" | tar xz
+          curl -fsSL -o ndi-sdk.tar.gz "$NDI_SDK_URL"
+          echo "$NDI_SDK_SHA256  ndi-sdk.tar.gz" | sha256sum --check --strict
+          tar xzf ndi-sdk.tar.gz
           echo y | PAGER=cat sh Install_NDI_SDK_v6_Linux.sh > /dev/null
           cat "$NDI_SDK_DIR/Version.txt"
 
       - name: Build the package
         run: packaging/build_deb.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: debian-package
           path: target/debian/*.deb
+
+  # Signs and publishes in a fresh container that runs only this repository's
+  # scripts and Debian's tools, so no build code shares a filesystem with the
+  # signing key. The publishing environment admits only release tags.
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    container: *debian
+    environment: publishing
+    permissions:
+      contents: write
+    env:
+      PACKAGE_DIR: packages
+      APT_REPO_DIR: apt-repo
+      PAGES_BRANCH: gh-pages
+    steps:
+      - name: Install publishing tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git apt-utils gnupg gpgv
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: debian-package
+          path: ${{ env.PACKAGE_DIR }}
 
       - name: Check out the APT repository
         run: |
@@ -89,7 +126,7 @@ jobs:
           echo "APT_SIGNING_KEY=$fingerprint" >> "$GITHUB_ENV"
 
       - name: Update the APT repository
-        run: packaging/update_apt_repo.sh "$APT_REPO_DIR" target/debian/*.deb
+        run: packaging/update_apt_repo.sh "$APT_REPO_DIR" "$PACKAGE_DIR"/*.deb
 
       # Verifying against the published public key catches a secret and a
       # variable that belong to different key pairs before users see it.
