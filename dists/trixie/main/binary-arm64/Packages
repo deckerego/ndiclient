@@ -24,3 +24,29 @@ Description: command line NDI video receiver
  .
  NDI is a registered trademark of Vizrt NDI AB. See https://ndi.video/
 
+Package: ndiclient
+Architecture: arm64
+Version: 0.2.0-1
+Priority: optional
+Section: video
+Maintainer: John Ellis <john@deckerego.net>
+Installed-Size: 5336
+Depends: libavahi-client3 (>= 0.6.16), libavahi-common3 (>= 0.6.16), libc6 (>= 2.34), libgcc-s1 (>= 4.2), libsdl2-2.0-0 (>= 2.0.12)
+Recommends: avahi-daemon
+Filename: pool/main/n/ndiclient/ndiclient_0.2.0-1_arm64.deb
+Size: 1486016
+MD5sum: a1ce8d0820822a3e391688c71b3abfa7
+SHA1: 7b1f3ca9e7dde4d0539711795f45e44e6f55819f
+SHA256: e9487a5b77597cfa6fdc36e63e021c64c558cf695110e1cacb0efc821d9a70f9
+SHA512: fe3844b40d19ffe68c46cd2f6a4c1659f2333e38c9334cc95002547a2c12c7b711728d64050b56df0b847fd6519b38e6e318c6b3d4636ec9bbd77186f9023f01
+Homepage: https://github.com/deckerego/ndiclient
+Description: command line NDI video receiver
+ ndiclient finds an NDI source on the network by device and stream name
+ and shows its video in a desktop window or fullscreen. Run without
+ arguments, it lists the NDI sources it discovers.
+ .
+ This package bundles the NDI runtime library (libndi) privately in
+ /usr/lib/ndiclient.
+ .
+ NDI is a registered trademark of Vizrt NDI AB. See https://ndi.video/
+
