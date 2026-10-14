@@ -1,0 +1,19 @@
+Architectures: arm64
+Codename: trixie
+Components: main
+Date: Wed, 14 Oct 2026 16:30:32 +0000
+Label: ndiclient
+Origin: ndiclient
+Suite: trixie
+MD5Sum:
+ cecba2f5d0bc2fe5f13e5da3ad39430d             1136 main/binary-arm64/Packages
+ 148cb0b5b3fe021abd3392fd6e0c3496              733 main/binary-arm64/Packages.gz
+SHA1:
+ 565dcdeebdeb6fa35ee15ae10f6a6fa4038c32ca             1136 main/binary-arm64/Packages
+ 07cdfd72771656d9ec7192f81310664737abfced              733 main/binary-arm64/Packages.gz
+SHA256:
+ eab76ec8ad4ec383172dc6e0cebcf5ce92aff61fe7ce64c295537044f87d1419             1136 main/binary-arm64/Packages
+ 47f78b642b407dcbfd51f59f24d9f82d5a1f6b2a10766b37e0d3da9cd93f9a42              733 main/binary-arm64/Packages.gz
+SHA512:
+ cb0e37a958efc20390bb25459d1c71db01b3fbf812c1d0cfc4de1473bece4c9d7c8d7af5ffcfb286bb1ffc2da8af092dfdbd4a1709ab9baabaa51c1c4ec866c9             1136 main/binary-arm64/Packages
+ fe343ab72d0ee2524e3c42e0d9cdef1c6a566d664c981be693f4711eaa87a9caba39f3ea5ac9d595021544b4fe9ff8906f86188be5d55db22c18bbdef05e9768              733 main/binary-arm64/Packages.gz
