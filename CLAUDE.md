@@ -1,10 +1,11 @@
 # ndiclient
 
 Command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
-`ndiclient [--fullscreen] [--noaudio] <device-name> [stream-name]` uses NDI
-discovery to find the source named `DEVICE (Stream)` (or the first stream on
-that device), shows its video in a desktop window or fullscreen and plays its
-audio. `ndiclient` without arguments lists the sources it discovers.
+`ndiclient [--fullscreen] [--noaudio] [--ipaddr <ip>] <device-name> [stream-name]`
+uses NDI discovery to find the source named `DEVICE (Stream)` (or the first
+stream on that device), shows its video in a desktop window or fullscreen and
+plays its audio. `ndiclient [--ipaddr <ip>]` without names lists the sources
+it discovers.
 
 ## Coding standard
 
@@ -31,6 +32,8 @@ target/release/ndiclient studio.local "OBS PGM"
 target/release/ndiclient STUDIO
 target/release/ndiclient --fullscreen STUDIO "OBS PGM"
 target/release/ndiclient --noaudio STUDIO
+target/release/ndiclient --ipaddr 192.168.1.20 STUDIO "OBS PGM"
+target/release/ndiclient --ipaddr 192.168.1.20
 packaging/build_deb.sh
 ```
 
@@ -42,10 +45,17 @@ packaging/build_deb.sh
   letterboxed. Not valid without a device name.
 - Audio plays on SDL's default output (PipeWire here) unless `--noaudio`
   is given. `--noaudio` opens no audio device, starts no audio thread and
-  doesn't capture audio; it isn't valid without a device name either. Options
-  may come in any order, each at most once. "Playing audio: 48000 Hz, 2
-  channels" is printed when the output opens (again if the format changes).
-  If no output can be opened, a warning is printed and the video still plays.
+  doesn't capture audio; it isn't valid without a device name either.
+  "Playing audio: 48000 Hz, 2 channels" is printed when the output opens
+  (again if the format changes). If no output can be opened, a warning is
+  printed and the video still plays.
+- `--ipaddr <ip>` (IPv4 or IPv6, no host names) asks that address for its
+  sources directly (NDI `p_extra_ips`, unicast) besides mDNS, and only
+  sources whose NDI URL address is that IP are used, for connecting and
+  for listing. For multicast lost between Wi-Fi and wired Ethernet, and to
+  pick one interface of a multi-homed source. Without a device name it
+  lists the sources at that address. Options may come in any order, each
+  at most once; `--ipaddr` takes the next argument as its value.
 - Kiosk mode: in fullscreen the mouse cursor is hidden. F11 or F switches
   between windowed and fullscreen at runtime (held keys don't repeat it).
 - Close the window or press Escape to quit (also in fullscreen).
@@ -123,9 +133,9 @@ packaging/build_deb.sh
 ## Architecture
 
 ```
-src/main.rs          argument parsing (Command, ViewOptions: --fullscreen,
-                     --noaudio), wiring, source listing, main
-                     capture/display loop
+src/main.rs          argument parsing (Invocation, Command, ViewOptions:
+                     --fullscreen, --noaudio, --ipaddr), wiring, source
+                     listing, main capture/display loop
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
 src/sound.rs         Sound / AudioFormat: device-agnostic planar audio view,
                      interleaving, channel narrowing
@@ -149,6 +159,7 @@ src/ndi/ffi.rs       raw C declarations for the NDI SDK
 src/ndi/runtime.rs   NdiRuntime: RAII for NDIlib_initialize/NDIlib_destroy
 src/ndi/query.rs     SourceQuery: device + optional stream name, matching rules
 src/ndi/finder.rs    SourceFinder / SourceDescriptor: list sources, find one matching a query
+src/ndi/scope.rs     DiscoveryScope: whole network or one IP address (--ipaddr)
 src/ndi/receiver.rs  Receiver / VideoFrame / AudioFrame / Capture: receive frames
 tools/               test-pattern NDI sender used for development (C)
 packaging/           build_deb.sh, update_apt_repo.sh; Debian control
@@ -159,13 +170,22 @@ packaging/           build_deb.sh, update_apt_repo.sh; Debian control
 Key decisions:
 
 - **Discovery by name.** The finder uses NDI's default discovery (mDNS, or a
-  discovery server if configured in NDI's own config file); no `p_extra_ips`.
+  discovery server if configured in NDI's own config file); `p_extra_ips`
+  only with `--ipaddr`.
   We pick the first source whose full name (`DEVICE (Stream)`) splits into the
   requested device and (if given) stream. "First" is NDI's list order, which
   is roughly discovery order, so with several streams on one device and no
   stream name the choice is not guaranteed to be stable between runs. NDI may list a source more than once; names are
-  de-duplicated in errors. Earlier PoC versions connected by IP via
-  `p_extra_ips`, which also worked without multicast; that was removed.
+  de-duplicated in errors.
+- **Discovery scope.** A host with several interfaces (Wi-Fi and Ethernet)
+  is announced once per interface, each with its own URL address, and
+  multicast may get lost between them. `DiscoveryScope::Address` (from
+  `--ipaddr`) queries that IP by unicast and makes the finder drop every
+  source whose URL address (`<ip>:<port>`) is another IP, so `find_source`,
+  listing and the error's source list only see that interface. The
+  receiver connects to the chosen descriptor's URL, so it uses that
+  interface too. Earlier PoC versions required an IP; it became optional
+  when discovery by name was added.
 - **Black window on open.** Wayland maps a window only after its first
   present, so `VideoWindow::open` presents a cleared (black) frame.
 - **Pixel format.** The receiver asks for `UYVY_BGRA`, because NDI decodes to
@@ -248,7 +268,7 @@ Key decisions:
 - `cargo test`: unit tests for argument parsing, source query matching, the
   frame-rate meter, the stall detector, the UYVY→I420 repacking, window mode
   toggling, key handling, audio interleaving, dropout concealment, the
-  bridge fill and the jitter buffer (90 tests).
+  bridge fill, the jitter buffer and the discovery scope (107 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
@@ -349,13 +369,13 @@ Key decisions:
   continued. SIGTERM exits cleanly (exit 0, the audio thread joins). Not
   tested: remote sources with audio, A/V sync by eye/ear, long runs (drift),
   more than 2 channels, rates other than 48 kHz.
-- Audio static from OBS (2026-10-14): DistroAV OBS source over
+- Audio static from OBS (2026-10-14): Remote DistroAV instance on OBS over
   Wi-Fi, 44.1 kHz stereo; music had static, voice sounded fine. Delivery
   was mostly steady (0 simulated underruns in 4 of 5 30 s runs; one Wi-Fi
   burst gave a 715 ms gap and 7). The static was holes of digital silence
   already in the received audio (see Dropout concealment). Recorded at the
   HDMI sink monitor, 2 x 21 s each: ~9 holes/s before, ~0.1/s after.
-- Audio fill and buffering (2026-10-14): DistroAV OBS source over
+- Audio fill and buffering (2026-10-14): Remote DistroAV instance on OBS over
   Wi-Fi, 60 s recorded at the HDMI sink monitor, with the concealer's
   input and output dumped for a like-for-like comparison. Input: 14.2
   holes/s, 17 longer than 10 ms, 3 longer than 25 ms. At the holes the
@@ -368,6 +388,13 @@ Key decisions:
   Delivery was clean in NDI's own counters throughout (0 dropped), so the
   remaining gaps are upstream stalls, not the client. Listening test
   still to do.
+- `--ipaddr` (2026-10-14): listing at this Pi's Wi-Fi address showed the
+  local test pattern, at an unused address none (exit 0); connecting to
+  the test pattern through it ran at ~31 fps, and at the unused address it
+  failed after 10 s saying nothing was discovered there. Remote DistroAV
+  instance on OBS at its address was listed and played (30 fps, 44.1 kHz
+  audio). Not tested where it matters: a network where mDNS doesn't reach
+  the source, and a source with two interfaces.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -400,8 +427,9 @@ Key decisions:
   channels.
 - Over Wi-Fi, full-bandwidth 1080p NDI (~90+ Mbit/s) saturates the Pi's
   radio and causes pauses of up to ~12 s. Use wired Ethernet.
-- Discovery relies on mDNS (or an NDI discovery server). Networks that block
-  multicast need a discovery server; there is no IP fallback any more.
+- Discovery relies on mDNS (or an NDI discovery server). Where multicast is
+  blocked, `--ipaddr` queries the source's host directly. It takes one IP
+  address, not a host name or a list.
 - Stream name matching is exact and case-sensitive; no partial or wildcard
   matching.
 - NDI EULA clause 1.b.iii excludes products running on "embedded devices"

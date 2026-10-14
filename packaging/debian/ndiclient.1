@@ -4,10 +4,14 @@ ndiclient \-
 command line NDI video and audio monitor
 .SH SYNOPSIS
 .B ndiclient
+.RB [ \-\-ipaddr
+.IR ip-address ]
 .br
 .B ndiclient
 .RB [ \-\-fullscreen ]
 .RB [ \-\-noaudio ]
+.RB [ \-\-ipaddr
+.IR ip-address ]
 .I device-name
 .RI [ stream-name ]
 .SH DESCRIPTION
@@ -33,7 +37,14 @@ Without a stream name, the first stream discovered on the device is shown.
 Go into "kiosk mode" instead of running within a window.
 .PP
 .B \-\-noaudio
-Do not play the source's audio; no audio device is opened.
+Do not play the source's audio; No audio device is opened.
+.PP
+.BI \-\-ipaddr " ip-address"
+Only use sources at this IPv4 or IPv6 address, and ask that address for its
+sources directly as well as through mDNS. Use this when multicast does not
+reach the source (e.g. it is lost between Wi-Fi and wired Ethernet), or to
+pick one network interface of a source that has several. Without a device
+name, lists the sources at that address.
 .SH KEYS
 .PP
 .BR F11 ", " F
@@ -67,6 +78,14 @@ Show the first stream of device STUDIO fullscreen.
 .PP
 .B ndiclient \-\-noaudio STUDIO
 Show the first stream of device STUDIO without its audio.
+.PP
+.B ndiclient \-\-ipaddr 192.168.1.20 STUDIO \(dqOBS PGM\(dq
+Show the source
+.B "STUDIO (OBS PGM)"
+through its network interface at 192.168.1.20.
+.PP
+.B ndiclient \-\-ipaddr 192.168.1.20
+List the NDI sources at 192.168.1.20.
 .SH NOTES
 NDI\(rg is a registered trademark of Vizrt NDI AB. Learn more at
 .UR https://ndi.video/
