@@ -10,8 +10,6 @@ NDI® is a registered trademark of Vizrt NDI AB. Learn more at [ndi.video](https
 ## Limitations
 
 *  Right now the receiver requests the highest bandwidth feed available, low bandwidth mode is not supported.
-*  Audio is currently not supported, but will be added before the first stable release.
-*  No resolution scaling is provided yet.
 *  Right now the target platform is the Raspberry Pi AArch64 platform and tested on an RPi 5 4GB. In theory this arm64 package could work on the RPi 3 or newer (including the RPi Zero 2), but this hasn't been validated yet. Other Linux distros or platforms are currently not available.
 
 
