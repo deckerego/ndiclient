@@ -349,13 +349,13 @@ Key decisions:
   continued. SIGTERM exits cleanly (exit 0, the audio thread joins). Not
   tested: remote sources with audio, A/V sync by eye/ear, long runs (drift),
   more than 2 channels, rates other than 48 kHz.
-- Audio static from OBS (2026-10-14): `RONINEGO.local (OBS PGM)` over
+- Audio static from OBS (2026-10-14): DistroAV OBS source over
   Wi-Fi, 44.1 kHz stereo; music had static, voice sounded fine. Delivery
   was mostly steady (0 simulated underruns in 4 of 5 30 s runs; one Wi-Fi
   burst gave a 715 ms gap and 7). The static was holes of digital silence
   already in the received audio (see Dropout concealment). Recorded at the
   HDMI sink monitor, 2 x 21 s each: ~9 holes/s before, ~0.1/s after.
-- Audio fill and buffering (2026-10-14): `RONINEGO.local (OBS PGM)` over
+- Audio fill and buffering (2026-10-14): DistroAV OBS source over
   Wi-Fi, 60 s recorded at the HDMI sink monitor, with the concealer's
   input and output dumped for a like-for-like comparison. Input: 14.2
   holes/s, 17 longer than 10 ms, 3 longer than 25 ms. At the holes the
