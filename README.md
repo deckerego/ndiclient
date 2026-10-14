@@ -30,6 +30,24 @@ cargo build --release
 ```
 
 
+## Debian Package
+
+To build a `.deb` for the local machine's architecture, run:
+```sh
+packaging/build_deb.sh
+```
+
+This needs `dpkg-dev` (for `dpkg-shlibdeps`) in addition to the build
+requirements above. The package lands in `target/debian/` and installs with:
+```sh
+sudo apt install ./target/debian/ndiclient_0.1.0-1_arm64.deb
+```
+
+The package installs `/usr/bin/ndiclient` and bundles the NDI runtime
+library privately in `/usr/lib/ndiclient`, as the NDI SDK documentation
+asks. It recommends `avahi-daemon`, which NDI discovery uses for mDNS.
+
+
 ## Usage
 
 Run without arguments to list the NDI sources discovered on the network:
@@ -84,6 +102,7 @@ cargo test
 *  Right now the receiver requests the highest bandwidth feed available, low bandwidth mode is not supported.
 *  Audio is currently not supported, but will be added before the first stable release.
 *  No resolution scaling is provided yet.
+*  Right now the target platform is the Raspberry Pi AArch64 platform and tested on an RPi 5 4GB. In theory this arm64 package could work on the RPi 3 or newer (including the RPi Zero 2), but this hasn't been validated yet. Other Linux distros or platforms are currently not available.
 
 
 ## License

@@ -1,0 +1,19 @@
+Package: ndiclient
+Version: @VERSION@
+Architecture: @ARCHITECTURE@
+Maintainer: John Ellis <john@deckerego.net>
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Recommends: avahi-daemon
+Section: video
+Priority: optional
+Homepage: https://github.com/deckerego/ndiclient
+Description: command line NDI video receiver
+ ndiclient finds an NDI source on the network by device and stream name
+ and shows its video in a desktop window or fullscreen. Run without
+ arguments, it lists the NDI sources it discovers.
+ .
+ This package bundles the NDI runtime library (libndi) privately in
+ /usr/lib/ndiclient.
+ .
+ NDI is a registered trademark of Vizrt NDI AB. See https://ndi.video/
