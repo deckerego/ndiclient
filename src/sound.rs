@@ -10,10 +10,14 @@ pub struct AudioFormat {
 }
 
 impl AudioFormat {
+    /// Number of instants (one sample of every channel) that play for `duration`.
+    pub fn instant_count(self, duration: std::time::Duration) -> usize {
+        (duration.as_secs_f64() * f64::from(self.sample_rate)) as usize
+    }
+
     /// Number of interleaved samples that play for `duration`.
     pub fn sample_count(self, duration: std::time::Duration) -> usize {
-        let frames = duration.as_secs_f64() * f64::from(self.sample_rate);
-        frames as usize * usize::from(self.channels)
+        self.instant_count(duration) * usize::from(self.channels)
     }
 }
 
@@ -80,6 +84,11 @@ mod tests {
             channel_stride: 3,
             samples: &[1.0, 2.0, 0.0, 10.0, 20.0, 0.0, 100.0, 200.0, 0.0],
         }
+    }
+
+    #[test]
+    fn instant_count_counts_one_per_sampling_period() {
+        assert_eq!(STEREO_48K.instant_count(Duration::from_millis(10)), 480);
     }
 
     #[test]

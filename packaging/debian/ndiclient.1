@@ -28,7 +28,9 @@ The device name matches ignoring case; the stream name must match exactly.
 Without a stream name, the first stream discovered on the device is shown.
 .PP
 Audio plays about 60 to 200 milliseconds behind its arrival, which smooths
-out network jitter. Only the first two channels (front left and right) are
+out network jitter. Short dropouts of digital silence (up to 10 milliseconds)
+that some senders insert are bridged so they do not crackle. Only the first
+two channels (front left and right) are
 played. If no sound output can be opened, a warning is printed and the video
 is still shown.
 .SH OPTIONS

@@ -129,6 +129,8 @@ src/main.rs          argument parsing (Command, ViewOptions: --fullscreen,
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
 src/sound.rs         Sound / AudioFormat: device-agnostic planar audio view,
                      interleaving, channel narrowing
+src/dropout.rs       DropoutConcealer: bridges short runs of digital
+                     silence that some senders punch into the audio
 src/jitter_buffer.rs JitterBuffer / AudioLatency: audio queue between the
                      network and the sound card (priming, backlog trimming)
 src/audio_pump.rs    the only threading code: audio capture thread
@@ -179,7 +181,8 @@ Key decisions:
   so `audio_pump` (scoped thread, all the threading code) captures audio
   only, and the main thread video only. Display hitches therefore don't
   starve audio. The pump keeps the first 2 channels (SDL plays only 1/2/4/6/8),
-  interleaves them and pushes them into a `Mutex<JitterBuffer>`. SDL's audio
+  interleaves them, conceals dropouts (below) and pushes them into a
+  `Mutex<JitterBuffer>`. SDL's audio
   callback (`Speaker`, on SDL's own thread) pulls from it. The pump stops
   within 100 ms when the video loop ends (also on panic, via a drop guard).
 - **Audio device follows the source.** The format is only known once audio
@@ -198,6 +201,18 @@ Key decisions:
   also has SDL's 1024-sample device buffer (~21 ms), so it plays ~80 ms or
   more after arrival, while video is shown on arrival. No A/V sync by
   timestamps.
+- **Dropout concealment.** OBS (DistroAV, 44.1 kHz) was seen sending
+  ~12 holes a second: 40–220 samples (1–5 ms) of exact 0.0 in every
+  channel, mid-frame, with the waveform continuing smoothly after them.
+  They come from the sender, not the network (same rate with
+  `NDIlib_recv_bandwidth_audio_only`), and in music they sound like static.
+  `DropoutConcealer` bridges any all-channel run of exact silence of up to
+  10 ms between two sounding instants with a straight line; longer silence
+  passes unchanged (held back up to 10 ms until it is known to be long).
+  Offline, on captured music with synthetic holes, the high-frequency
+  (click) error was 143x the music's own HF energy for the holes, 1.2x
+  for linear bridging and 0.9x for two-sided LPC extrapolation (not used:
+  more code and ~12 ms lookahead).
 - **Audio frames.** `recv_capture_v2` with `NDIlib_audio_frame_v2_t`, which
   is always planar 32-bit float (no FourCC to check).
 - **Kiosk mode.** `WindowMode` decides fullscreen type and cursor
@@ -213,8 +228,8 @@ Key decisions:
 
 - `cargo test`: unit tests for argument parsing, source query matching, the
   frame-rate meter, the stall detector, the UYVY→I420 repacking, window mode
-  toggling, key handling, audio interleaving and the jitter buffer
-  (65 tests).
+  toggling, key handling, audio interleaving, dropout concealment and the
+  jitter buffer (76 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
@@ -315,6 +330,12 @@ Key decisions:
   continued. SIGTERM exits cleanly (exit 0, the audio thread joins). Not
   tested: remote sources with audio, A/V sync by eye/ear, long runs (drift),
   more than 2 channels, rates other than 48 kHz.
+- Audio static from OBS (2026-10-14): `RONINEGO.local (OBS PGM)` over
+  Wi-Fi, 44.1 kHz stereo; music had static, voice sounded fine. Delivery
+  was mostly steady (0 simulated underruns in 4 of 5 30 s runs; one Wi-Fi
+  burst gave a 715 ms gap and 7). The static was holes of digital silence
+  already in the received audio (see Dropout concealment). Recorded at the
+  HDMI sink monitor, 2 x 21 s each: ~9 holes/s before, ~0.1/s after.
 - Not yet tested: wired Ethernet (to confirm a full 60 fps), choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -325,6 +346,9 @@ Key decisions:
   the last frame, "Waiting for video..." is printed after 3 s, and NDI
   reconnects automatically if the source returns.
   `Capture::ConnectionLost` only handles NDI's explicit error frame type.
+- Dropout concealment is heuristic: genuine digital silence of 10 ms or
+  less between sounds is bridged too (harmless at those lengths), and
+  dropouts longer than 10 ms or not exactly 0.0 are not concealed.
 - Audio is not synchronised to video by timestamps; it plays ~80 ms or more
   after arrival (jitter buffer + device buffer). Clock drift between sender
   and sound card is absorbed by the jitter buffer, with an audible cut or
@@ -334,7 +358,7 @@ Key decisions:
   program with an error.
 - Hardcoded: SDK path default, 1280x720 initial window, 10 s discovery
   timeout, 5 s listing duration, 5 s fps report interval, 3 s stall threshold, highest bandwidth,
-  60/200 ms audio latency, 1024-sample audio device buffer, 2 played channels.
+  60/200 ms audio latency, 10 ms max concealed dropout, 1024-sample audio device buffer, 2 played channels.
 - Over Wi-Fi, full-bandwidth 1080p NDI (~90+ Mbit/s) saturates the Pi's
   radio and causes pauses of up to ~12 s. Use wired Ethernet.
 - Discovery relies on mDNS (or an NDI discovery server). Networks that block

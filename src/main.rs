@@ -5,6 +5,7 @@
 
 mod audio_pump;
 mod display;
+mod dropout;
 mod frame_rate;
 mod i420;
 mod jitter_buffer;
