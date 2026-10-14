@@ -1,3 +1,7 @@
+# To publish a release, bump the version here, add a matching entry
+# to `packaging/debian/changelog`, merge, then publish a GitHub release
+# tagged with that version.
+
 [package]
 name = "ndiclient"
 version = "0.1.0"
