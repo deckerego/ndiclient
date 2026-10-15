@@ -52,12 +52,12 @@ lost between Wi-Fi and wired Ethernet, give the IP address of the source with
 sources at that address are used, so it also picks the network interface of a
 source that has several:
 ```sh
-target/release/ndiclient --ipaddr 192.168.1.20 STUDIO "OBS PGM"
+target/release/ndiclient --ipaddr 192.0.2.20 STUDIO "OBS PGM"
 ```
 
 Without a device name, `--ipaddr` lists the sources at that address:
 ```sh
-target/release/ndiclient --ipaddr 192.168.1.20
+target/release/ndiclient --ipaddr 192.0.2.20
 ```
 
 The device name is matched ignoring case; the stream name must match exactly.

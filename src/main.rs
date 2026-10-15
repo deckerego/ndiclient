@@ -438,39 +438,39 @@ mod tests {
 
     #[test]
     fn ipaddr_option_restricts_discovery_to_address() {
-        let parsed = scope(&["--ipaddr", "192.168.1.20", "STUDIO", "OBS PGM"]);
-        assert_eq!(parsed, Some(address("192.168.1.20")));
+        let parsed = scope(&["--ipaddr", "192.0.2.20", "STUDIO", "OBS PGM"]);
+        assert_eq!(parsed, Some(address("192.0.2.20")));
     }
 
     #[test]
     fn ipaddr_option_may_follow_names() {
-        let parsed = scope(&["STUDIO", "--ipaddr", "192.168.1.20"]);
-        assert_eq!(parsed, Some(address("192.168.1.20")));
+        let parsed = scope(&["STUDIO", "--ipaddr", "192.0.2.20"]);
+        assert_eq!(parsed, Some(address("192.0.2.20")));
     }
 
     #[test]
     fn ipaddr_option_accepts_ipv6_address() {
         assert_eq!(
-            scope(&["--ipaddr", "fd00::20", "STUDIO"]),
-            Some(address("fd00::20"))
+            scope(&["--ipaddr", "2001:db8::20", "STUDIO"]),
+            Some(address("2001:db8::20"))
         );
     }
 
     #[test]
     fn ipaddr_value_is_not_taken_as_device_name() {
-        let command = command(&["--ipaddr", "192.168.1.20", "STUDIO", "OBS PGM"]);
+        let command = command(&["--ipaddr", "192.0.2.20", "STUDIO", "OBS PGM"]);
         assert!(matches!(command, Ok(Command::ShowVideo { .. })));
     }
 
     #[test]
     fn ipaddr_option_alone_lists_sources() {
-        let command = command(&["--ipaddr", "192.168.1.20"]);
+        let command = command(&["--ipaddr", "192.0.2.20"]);
         assert!(matches!(command, Ok(Command::ListSources)));
     }
 
     #[test]
     fn ipaddr_option_combines_with_view_options() {
-        let mode = window_mode(&["--fullscreen", "--ipaddr", "192.168.1.20", "STUDIO"]);
+        let mode = window_mode(&["--fullscreen", "--ipaddr", "192.0.2.20", "STUDIO"]);
         assert_eq!(mode, Some(WindowMode::Fullscreen));
     }
 
@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn repeated_ipaddr_option_is_rejected() {
-        let command = command(&["--ipaddr", "10.0.0.1", "--ipaddr", "10.0.0.2", "STUDIO"]);
+        let command = command(&["--ipaddr", "198.51.100.1", "--ipaddr", "198.51.100.2", "STUDIO"]);
         assert!(command.is_err());
     }
 }
