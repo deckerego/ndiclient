@@ -52,12 +52,12 @@ lost between Wi-Fi and wired Ethernet, give the IP address of the source with
 sources at that address are used, so it also picks the network interface of a
 source that has several:
 ```sh
-target/release/ndiclient --ipaddr 192.168.1.20 STUDIO "OBS PGM"
+target/release/ndiclient --ipaddr 192.0.2.20 STUDIO "OBS PGM"
 ```
 
 Without a device name, `--ipaddr` lists the sources at that address:
 ```sh
-target/release/ndiclient --ipaddr 192.168.1.20
+target/release/ndiclient --ipaddr 192.0.2.20
 ```
 
 The device name is matched ignoring case; the stream name must match exactly.
@@ -67,15 +67,16 @@ sources that were discovered.
 
 ## Installing with APT
 
-Binary packages are available for the Raspberry Pi OS "trixie" (arm64) distro.
+Binary packages are available for the Raspberry Pi OS "trixie" and "bookworm"
+(arm64) distros.
 They are published on an APT source hosted by GitHub Pages for this repo,
 so there are a few hoops to jump through in order to install through `apt`.
 
-To add the repo and install `ndiclient`:
+To add the repo for the release you are running and install `ndiclient`:
 ```sh
 sudo curl -fsSLo /usr/share/keyrings/ndiclient-archive-keyring.gpg \
     https://deckerego.github.io/ndiclient/ndiclient-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/ndiclient-archive-keyring.gpg] https://deckerego.github.io/ndiclient trixie main" \
+echo "deb [signed-by=/usr/share/keyrings/ndiclient-archive-keyring.gpg] https://deckerego.github.io/ndiclient $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
     | sudo tee /etc/apt/sources.list.d/ndiclient.list
 sudo apt update
 sudo apt install ndiclient
@@ -125,11 +126,12 @@ packaging/build_deb.sh
 This needs `dpkg-dev` (for `dpkg-shlibdeps`) in addition to the build
 requirements above. The package lands in `target/debian/` and installs with:
 ```sh
-sudo apt install ./target/debian/ndiclient_0.1.0-1_arm64.deb
+sudo apt install ./target/debian/ndiclient_0.3.0-1+deb13_arm64.deb
 ```
 
 The package version comes from `packaging/debian/changelog` and must match
-the version in `Cargo.toml`. The package installs `/usr/bin/ndiclient` and
+the version in `Cargo.toml`. `+deb13` (or `+deb12`) names the Debian release
+it was built on. The package installs `/usr/bin/ndiclient` and
 its man page, and bundles the NDI runtime
 library privately in `/usr/lib/ndiclient`, as the NDI SDK documentation
 asks. It recommends `avahi-daemon`, which NDI discovery uses for mDNS.

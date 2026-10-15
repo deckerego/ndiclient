@@ -1,7 +1,8 @@
 name: APT repository
 
 # Publishing a GitHub release (tagged vX.Y.Z, matching Cargo.toml) builds the
-# package and adds it to the APT repository on the gh-pages branch, which
+# package for each supported Debian release and adds each build to that
+# release's distribution in the APT repository on the gh-pages branch, which
 # GitHub Pages serves. Draft releases don't run it until they are published.
 on:
   release:
@@ -13,16 +14,24 @@ concurrency:
   group: apt-repository
   cancel-in-progress: false
 
-# Actions are pinned to commit SHAs and the image to a digest, so a moved tag
+# Actions are pinned to commit SHAs and the images to digests, so a moved tag
 # can't change what runs. The comments name the version each pin was taken from.
 jobs:
   # Runs third-party code (the NDI installer, crate build scripts) as root,
   # so it gets no secrets and only a read-only token.
   build:
     runs-on: ubuntu-24.04-arm
-    # Built on the Debian release Raspberry Pi OS is based on, so
-    # dpkg-shlibdeps derives dependencies that exist there.
-    container: &debian debian:trixie@sha256:913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5
+    # Built on each Debian release Raspberry Pi OS is based on (the current
+    # one and the one before), so dpkg-shlibdeps derives dependencies that
+    # exist there. Publishing waits for all of them.
+    strategy:
+      matrix:
+        include:
+          - distribution: trixie
+            image: &trixie debian:trixie@sha256:913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5
+          - distribution: bookworm
+            image: debian:bookworm@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858
+    container: ${{ matrix.image }}
     permissions:
       contents: read
     env:
@@ -31,6 +40,7 @@ jobs:
       # fails the check: review it, update the checksum and the bindings.
       NDI_SDK_SHA256: f0314f245446defc488b63ceb4689acf1a965aeefdadacb70571bb216a8cc183
       NDI_SDK_DIR: /opt/ndi/NDI SDK for Linux
+      ARTIFACT_PREFIX: &artifact_prefix debian-package-
     steps:
       # libndi links against Avahi's client libraries (NDI's mDNS discovery).
       - name: Install build tools
@@ -72,7 +82,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: debian-package
+          name: ${{ env.ARTIFACT_PREFIX }}${{ matrix.distribution }}
           path: target/debian/*.deb
 
   # Signs and publishes in a fresh container that runs only this repository's
@@ -81,12 +91,13 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-24.04-arm
-    container: *debian
+    container: *trixie
     environment: publishing
     permissions:
       contents: write
     env:
       PACKAGE_DIR: packages
+      ARTIFACT_PREFIX: *artifact_prefix
       APT_REPO_DIR: apt-repo
       PAGES_BRANCH: gh-pages
     steps:
@@ -98,9 +109,10 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # Each artifact lands in its own directory, named after the artifact.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: debian-package
+          pattern: ${{ env.ARTIFACT_PREFIX }}*
           path: ${{ env.PACKAGE_DIR }}
 
       - name: Check out the APT repository
@@ -126,7 +138,11 @@ jobs:
           echo "APT_SIGNING_KEY=$fingerprint" >> "$GITHUB_ENV"
 
       - name: Update the APT repository
-        run: packaging/update_apt_repo.sh "$APT_REPO_DIR" "$PACKAGE_DIR"/*.deb
+        run: |
+          for artifact_dir in "$PACKAGE_DIR/$ARTIFACT_PREFIX"*; do
+            distribution="${artifact_dir#"$PACKAGE_DIR/$ARTIFACT_PREFIX"}"
+            packaging/update_apt_repo.sh "$APT_REPO_DIR" "$distribution" "$artifact_dir"/*.deb
+          done
 
       # Verifying against the published public key catches a secret and a
       # variable that belong to different key pairs before users see it.
@@ -135,7 +151,9 @@ jobs:
           SIGNING_PUBLIC_KEY: ${{ vars.SIGNING_PUBLIC_KEY }}
         run: |
           echo "$SIGNING_PUBLIC_KEY" | gpg --dearmor > "$RUNNER_TEMP/public-key.gpg"
-          gpgv --keyring "$RUNNER_TEMP/public-key.gpg" "$APT_REPO_DIR/dists/trixie/InRelease"
+          for release in "$APT_REPO_DIR"/dists/*/InRelease; do
+            gpgv --keyring "$RUNNER_TEMP/public-key.gpg" "$release"
+          done
 
       # .nojekyll makes Pages serve the files as they are.
       - name: Publish the APT repository

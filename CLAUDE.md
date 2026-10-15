@@ -22,6 +22,12 @@ Follow Uncle Bob's "Clean Code" rules. In short:
 - Tests: one assert per test. Tests should be fast, independent and repeatable.
 - Leave code cleaner than you found it, and always fix root causes.
 
+Documentation, comments, tests and commit messages never name the real
+hosts, devices, NDI sources or IP addresses used in development or testing.
+Use placeholders (`<hostname>`, `STUDIO`, `OBS PGM`) and the IP ranges
+reserved for documentation (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24,
+2001:db8::/32) instead.
+
 ## Usage
 
 ```sh
@@ -32,8 +38,8 @@ target/release/ndiclient studio.local "OBS PGM"
 target/release/ndiclient STUDIO
 target/release/ndiclient --fullscreen STUDIO "OBS PGM"
 target/release/ndiclient --noaudio STUDIO
-target/release/ndiclient --ipaddr 192.168.1.20 STUDIO "OBS PGM"
-target/release/ndiclient --ipaddr 192.168.1.20
+target/release/ndiclient --ipaddr 192.0.2.20 STUDIO "OBS PGM"
+target/release/ndiclient --ipaddr 192.0.2.20
 packaging/build_deb.sh
 ```
 
@@ -98,11 +104,16 @@ packaging/build_deb.sh
   `packaging/debian/control.in`. `Depends` comes from `dpkg-shlibdeps`
   (needs `dpkg-dev`); its warning about libndi linking libpthread is NDI's
   and harmless. The package version is the top entry of
-  `packaging/debian/changelog`; the build fails if its upstream part differs
+  `packaging/debian/changelog` plus `+deb<VERSION_ID>` from
+  `/etc/os-release` (`+deb13` on trixie, `+deb12` on bookworm), so builds
+  for different Debian releases get distinct versions and file names, and
+  a Debian upgrade upgrades the package; the build fails if its upstream part differs
   from Cargo.toml's version, so bump both together (and add a changelog
   entry). Keep `packaging/debian/ndiclient.1` in sync with the usage.
 - Distribution: `.github/workflows/apt-repository.yml` builds the package in
-  a `debian:trixie` container on GitHub's `ubuntu-24.04-arm` runner. It
+  a `debian:trixie` and a `debian:bookworm` container (a build matrix, one
+  leg per Debian release; Raspberry Pi OS's current and previous release)
+  on GitHub's `ubuntu-24.04-arm` runner. It
   downloads the NDI SDK from NDI's public URL and runs its installer with
   `y` piped in (the repository owner accepted the EULA), after checking the
   download against `NDI_SDK_SHA256`. NDI replaces that download in place,
@@ -111,17 +122,21 @@ packaging/build_deb.sh
   Cargo.toml). Releases created with the workflow `GITHUB_TOKEN` don't
   trigger it (GitHub prevents that). Two jobs keep the signing key away
   from third-party code: `build` (NDI installer, cargo; read-only token, no
-  secrets) uploads the `.deb` as an artifact; `publish` downloads it in a
-  fresh container, runs `packaging/update_apt_repo.sh` on the `gh-pages`
-  branch and pushes it; GitHub Pages serves it at
-  https://deckerego.github.io/ndiclient (distribution `trixie`, component
-  `main`). Actions are pinned to commit SHAs and `debian:trixie` to a
-  digest; update the pins deliberately. `publish` uses the GitHub
+  secrets) uploads each `.deb` as artifact `debian-package-<distribution>`;
+  `publish` waits for all legs, downloads them in a fresh trixie container,
+  runs `packaging/update_apt_repo.sh` once per distribution on the
+  `gh-pages` branch and pushes it; GitHub Pages serves it at
+  https://deckerego.github.io/ndiclient (distributions `trixie` and
+  `bookworm`, component `main`). Adding a Debian release means adding a
+  matrix entry. Actions are pinned to commit SHAs and the `debian` images
+  to digests; update the pins deliberately. `publish` uses the GitHub
   environment `publishing` (deployment rule: tags `*.*.*` only), which
   holds the secret `SIGNING_PRIVATE_KEY` (must have no passphrase) and the
   variable `SIGNING_PUBLIC_KEY` the signature is checked against. Keep
-  them out of repository-level secrets and variables. `update_apt_repo.sh` keeps old packages in
-  `pool/` and refuses to replace a `.deb` with different content, so a
+  them out of repository-level secrets and variables. `update_apt_repo.sh` keeps each distribution's
+  packages in its own pool, `pool/<distribution>/main/`, so its index lists
+  only those (before bookworm, trixie's were in `pool/main/`; the script
+  moves them on its next trixie run). It keeps old packages and refuses to replace a `.deb` with different content, so a
   rebuild of one version needs a new changelog entry. It needs `apt-utils`
   and `gnupg`, and the key id in `APT_SIGNING_KEY`.
 - The `sdl2` crate is used with the `unsafe_textures` feature so a texture can
@@ -319,12 +334,12 @@ Key decisions:
   it restarts, a second stop prints the message again, and the black window
   shows while no video has arrived.
 - Discovery by device + stream name (2026-10-13): over mDNS, the local test
-  pattern was found as `NDIDEV (ndiclient test pattern)` with the device given
-  in lowercase (`ndidev`) and displayed at ~30 fps; the remote source 
+  pattern was found as `<HOSTNAME> (ndiclient test pattern)` with the device
+  given in lowercase and displayed at ~30 fps; the remote source 
   was found and connected. A wrong stream name lists all discovered sources.
 - Listing (2026-10-13): `ndiclient` with no arguments printed both sources
   above after 5 s; with the local sender stopped, only the remote one.
-- Optional stream name (2026-10-13): `ndiclient ndidev` connected to the local
+- Optional stream name (2026-10-13): `ndiclient <hostname>` connected to the local
   test pattern (~31 fps) and `ndiclient <DEVICE>` to the remote source.
 - Fullscreen (2026-10-13): `--fullscreen` with the local test pattern filled
   the 1920x1080 HDMI display (screenshot via `grim`) at ~30 fps. The mouse

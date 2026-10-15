@@ -6,8 +6,9 @@
 # it on the system path. Needs the NDI SDK (NDI_SDK_DIR), cargo and
 # dpkg-dev (for dpkg-shlibdeps and dpkg-parsechangelog).
 #
-# The package version is the latest entry in packaging/debian/changelog. Its
-# upstream part must match the version in Cargo.toml.
+# The package version is the latest entry in packaging/debian/changelog plus
+# "+deb<N>" for the Debian release it is built on. Its upstream part must
+# match the version in Cargo.toml.
 set -eu
 
 PACKAGE_NAME=ndiclient
@@ -45,7 +46,16 @@ package_version() {
         echo "changelog version $version does not match Cargo.toml version $cargo_version" >&2
         exit 1
     fi
-    echo "$version"
+    echo "$version$(debian_release_suffix)"
+}
+
+# Packages built on different Debian releases depend on different library
+# versions, so each gets its own version and file name. "+deb<N>" sorts
+# after the bare version and in release order, so upgrading Debian (or
+# Raspberry Pi OS) also upgrades the package.
+debian_release_suffix() {
+    . /etc/os-release
+    echo "+deb${VERSION_ID:?/etc/os-release names no Debian release number}"
 }
 
 build_binary() {

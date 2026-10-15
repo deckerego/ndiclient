@@ -47,15 +47,15 @@ impl DiscoveryScope {
 mod tests {
     use super::*;
 
-    const URL_AT_ADDRESS: &str = "192.168.1.20:5961";
+    const URL_AT_ADDRESS: &str = "192.0.2.20:5961";
 
     fn scope() -> DiscoveryScope {
-        DiscoveryScope::Address("192.168.1.20".parse().unwrap())
+        DiscoveryScope::Address("192.0.2.20".parse().unwrap())
     }
 
     #[test]
     fn network_includes_any_url() {
-        assert!(DiscoveryScope::Network.includes("10.0.0.1:5961"));
+        assert!(DiscoveryScope::Network.includes("198.51.100.1:5961"));
     }
 
     #[test]
@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn address_excludes_url_at_other_address() {
-        assert!(!scope().includes("192.168.1.200:5961"));
+        assert!(!scope().includes("192.0.2.200:5961"));
     }
 
     #[test]
@@ -75,8 +75,8 @@ mod tests {
 
     #[test]
     fn ipv6_address_includes_url_at_that_address() {
-        let scope = DiscoveryScope::Address("fd00::20".parse().unwrap());
-        assert!(scope.includes("[fd00::20]:5961"));
+        let scope = DiscoveryScope::Address("2001:db8::20".parse().unwrap());
+        assert!(scope.includes("[2001:db8::20]:5961"));
     }
 
     #[test]
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn address_is_queried_directly() {
-        let expected = CString::new("192.168.1.20").unwrap();
+        let expected = CString::new("192.0.2.20").unwrap();
         assert_eq!(scope().extra_ips(), Some(expected));
     }
 }
