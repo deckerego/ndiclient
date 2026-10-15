@@ -1,0 +1,29 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: arm64
+Codename: bookworm
+Components: main
+Date: Thu, 15 Oct 2026 20:36:27 +0000
+Label: ndiclient
+Origin: ndiclient
+Suite: bookworm
+MD5Sum:
+ aa5bd7daddc07ea8236f174ca5a5c47b             1157 main/binary-arm64/Packages
+ 7a0ff878d5782967f5536fef7326061d              740 main/binary-arm64/Packages.gz
+SHA1:
+ e112fea7bdfe47bf3d63cb4c6980dc2b94ae5c38             1157 main/binary-arm64/Packages
+ 8756cf1e4c8e899f96f0df56c70a0452b2c4e625              740 main/binary-arm64/Packages.gz
+SHA256:
+ 229802060af46be52003d490581e28994f2d7fb423a8df68015366d56b9c6c2d             1157 main/binary-arm64/Packages
+ a532ed7f1ec484410d3c3113fff1fd0db392dc83a047bdcf048fb0a9b87d940b              740 main/binary-arm64/Packages.gz
+SHA512:
+ c157b4f54500844cc6c70251971b5be20c876abae3bf7517170b1a145ca71b423db2b85205b25d8a0ca648ea64e23e9a5430919c01d311b39dc104f3f2746f6a             1157 main/binary-arm64/Packages
+ dc4d1473b425c44beebee340a5a9e48e8f6ce79f3d9ce685ff31a9e100931fac66600dbdb9e1cb91abcc93efd33a79442bcf0a14b13ef76908463a6b26540684              740 main/binary-arm64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iHUEARYKAB0WIQR33VNroXxOtIvc6IGJU3i8P9IjagUCatE5SwAKCRCJU3i8P9Ij
+ahTWAQD97kS3X9Fkl2wDo4/w5HgPyBi0I0tT35xmRGGXVcLB7wD+L5xA+akG4kVr
+4XYI/uCCj2Aarl+75SDLxp7QOC81WQ0=
+=JRRb
+-----END PGP SIGNATURE-----

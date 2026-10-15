@@ -7,7 +7,7 @@ Maintainer: John Ellis <john@deckerego.net>
 Installed-Size: 5272
 Depends: libavahi-client3 (>= 0.6.16), libavahi-common3 (>= 0.6.16), libc6 (>= 2.34), libgcc-s1 (>= 4.2), libsdl2-2.0-0 (>= 2.0.12)
 Recommends: avahi-daemon
-Filename: pool/main/n/ndiclient/ndiclient_0.1.0-1_arm64.deb
+Filename: pool/trixie/main/n/ndiclient/ndiclient_0.1.0-1_arm64.deb
 Size: 1464868
 MD5sum: d3411d9fe2974f44e6ed846f10e4ddbc
 SHA1: 706143b0b962856c2bcea62599952fef3bb773f1
@@ -33,7 +33,7 @@ Maintainer: John Ellis <john@deckerego.net>
 Installed-Size: 5336
 Depends: libavahi-client3 (>= 0.6.16), libavahi-common3 (>= 0.6.16), libc6 (>= 2.34), libgcc-s1 (>= 4.2), libsdl2-2.0-0 (>= 2.0.12)
 Recommends: avahi-daemon
-Filename: pool/main/n/ndiclient/ndiclient_0.2.0-1_arm64.deb
+Filename: pool/trixie/main/n/ndiclient/ndiclient_0.2.0-1_arm64.deb
 Size: 1486016
 MD5sum: a1ce8d0820822a3e391688c71b3abfa7
 SHA1: 7b1f3ca9e7dde4d0539711795f45e44e6f55819f
@@ -59,12 +59,38 @@ Maintainer: John Ellis <john@deckerego.net>
 Installed-Size: 5336
 Depends: libavahi-client3 (>= 0.6.16), libavahi-common3 (>= 0.6.16), libc6 (>= 2.34), libgcc-s1 (>= 4.2), libsdl2-2.0-0 (>= 2.0.12)
 Recommends: avahi-daemon
-Filename: pool/main/n/ndiclient/ndiclient_0.3.0-1_arm64.deb
+Filename: pool/trixie/main/n/ndiclient/ndiclient_0.3.0-1_arm64.deb
 Size: 1491804
 MD5sum: 32bb2d75966acd74c63c30d8aa43c547
 SHA1: e1e1ad2dcda0e93cda8d8efa8dabc42fd1b7af20
 SHA256: 3f63bfc6137f43024b93e503a834ad783c501108047d61cf9bfda7dfca896fa7
 SHA512: 99a899826d928a252041f773c732978251498269115d293188526b50ca95d4b8ecd53484eda3ec4190c821ea23ed0bd5cbf11bf6346a891defdac3b5b4d9596b
+Homepage: https://github.com/deckerego/ndiclient
+Description: command line NDI video receiver
+ ndiclient finds an NDI source on the network by device and stream name
+ and shows its video in a desktop window or fullscreen. Run without
+ arguments, it lists the NDI sources it discovers.
+ .
+ This package bundles the NDI runtime library (libndi) privately in
+ /usr/lib/ndiclient.
+ .
+ NDI is a registered trademark of Vizrt NDI AB. See https://ndi.video/
+
+Package: ndiclient
+Architecture: arm64
+Version: 0.3.1-1+deb13
+Priority: optional
+Section: video
+Maintainer: John Ellis <john@deckerego.net>
+Installed-Size: 5336
+Depends: libavahi-client3 (>= 0.6.16), libavahi-common3 (>= 0.6.16), libc6 (>= 2.34), libgcc-s1 (>= 4.2), libsdl2-2.0-0 (>= 2.0.12)
+Recommends: avahi-daemon
+Filename: pool/trixie/main/n/ndiclient/ndiclient_0.3.1-1+deb13_arm64.deb
+Size: 1491688
+MD5sum: 428841a453b8a0ceca0b5baf12b83291
+SHA1: 98b8812ccf6ccf63ca33d69ca6b93dc4bd60c56a
+SHA256: 4c5eae96fe07d18eb6171ea6b73a575be53fe35e31098af3e7d22f1c3b068217
+SHA512: 24fb00f1903de20cc59b3e2e779cfb77920cec53aace880b6c174aa5874fa38def4750ec80585aeb8a4b560eebf214fd364eb32e4102d30919ffd762f7373e95
 Homepage: https://github.com/deckerego/ndiclient
 Description: command line NDI video receiver
  ndiclient finds an NDI source on the network by device and stream name

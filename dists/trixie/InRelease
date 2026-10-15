@@ -4,26 +4,26 @@ Hash: SHA512
 Architectures: arm64
 Codename: trixie
 Components: main
-Date: Wed, 14 Oct 2026 21:41:30 +0000
+Date: Thu, 15 Oct 2026 20:36:27 +0000
 Label: ndiclient
 Origin: ndiclient
 Suite: trixie
 MD5Sum:
- 58fa776daba41a6cee23246a69dac633             3408 main/binary-arm64/Packages
- e8a6d40c451ef21070f0e23286eb2a9b             1135 main/binary-arm64/Packages.gz
+ 8ef2a123419e7122246448550613097d             4584 main/binary-arm64/Packages
+ fcb5fcf7a95e1dc47d5021b2c0a1f723             1347 main/binary-arm64/Packages.gz
 SHA1:
- b7d8f8190e9eac4bc3010d78d82fca9cf872c9c5             3408 main/binary-arm64/Packages
- 3b9d1a09c657d93a9c82ff1fef8a949fefdda132             1135 main/binary-arm64/Packages.gz
+ f8b00485e8beeb25738af50685434a1f456eb88f             4584 main/binary-arm64/Packages
+ f01cbfc2f3ce8fb0bb38ef0ee8888146de33d1b7             1347 main/binary-arm64/Packages.gz
 SHA256:
- dbc5ab3a8a8cc71995709b1d6ec1be465ddc5bc6ffee37becd26fb82bd51465c             3408 main/binary-arm64/Packages
- c308659733072bd3c7d6117c1e84ab9d8633864e1ae9585a0a16ad9d1b3ae8fe             1135 main/binary-arm64/Packages.gz
+ af7d7dc7cb07fd29ff0f2caa40bbf8a5a46e3aa8bc751a39a901af895c9c10a6             4584 main/binary-arm64/Packages
+ 0cef8278f4cc991c4cebdeaaf2a69e67c302b4d84484ae826ce52198cbbbff60             1347 main/binary-arm64/Packages.gz
 SHA512:
- aeedc46beeafa4fa718802b306fcfd507286d6eb9a36444f469a5abc94d6987b0a5ba7014fa595ab3f5545678e979dc8c501ad6c2bab4d8d1f1df8ca863ce6d8             3408 main/binary-arm64/Packages
- f19d7a5925297bc32e49fa9ab7193da480f25f981b598974edf019697a0d37cf5b04bf3c22951ed9160096dc16c824084c0c38a134ddc0eead528245f6de7d1a             1135 main/binary-arm64/Packages.gz
+ 8fd1ecb60145753f056db1be3181cb710347f395eb1855194ddf9b7a98db5af29fabe71d74e01e2747de6e91a9bba9c3360e67cbdb56cef8e356f53053b7243f             4584 main/binary-arm64/Packages
+ 1ccbed8ce166a30124d2a6d4092ca458b55efb2acf0808e4467b8fa328ec6beebe36f92468707348dab57c7d9322def377d5e1f02ab7d0cd6e71a95bc67b034a             1347 main/binary-arm64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQR33VNroXxOtIvc6IGJU3i8P9IjagUCas/3CgAKCRCJU3i8P9Ij
-ahE4AQC5UW5RYrl0PtzND3N57TaKeoZGMGk6qMVjfH7/fJ9adwD/cCdbTimiqSwk
-a46jqsngRb1Q/LMCikJXr2+SD0aHWQQ=
-=QfgL
+iHUEARYKAB0WIQR33VNroXxOtIvc6IGJU3i8P9IjagUCatE5SwAKCRCJU3i8P9Ij
+airGAP977s0laWDGzoW6wvw9n+cM4vOMLq4CDmKCs6BEC0C2QgEA0LhJRw9nARRD
+eaD6yxyTaKpC97L/X4V2WoENZhLsmQ0=
+=szQ4
 -----END PGP SIGNATURE-----
