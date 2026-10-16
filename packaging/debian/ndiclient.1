@@ -8,6 +8,7 @@ command line NDI video monitor
 .IR ip-address ]
 .br
 .B ndiclient
+.RB [ \-d ]
 .RB [ \-\-fullscreen ]
 .RB [ \-\-noaudio ]
 .RB [ \-\-ipaddr
@@ -32,6 +33,10 @@ The device name matches ignoring case; the stream name must match exactly.
 Without a stream name, the first stream discovered on the device is shown.
 
 .SH OPTIONS
+.PP
+.B \-d
+Print debug messages, such as the displayed frame rate every 5 seconds.
+Without it they are not printed.
 .PP
 .B \-\-fullscreen
 Go into "kiosk mode" instead of running within a window.

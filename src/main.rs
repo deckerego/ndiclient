@@ -48,10 +48,11 @@ const AUDIO_LATENCY: AudioLatency = AudioLatency {
 const AUDIO_FADE: Duration = Duration::from_millis(5);
 const FULLSCREEN_OPTION: &str = "--fullscreen";
 const NO_AUDIO_OPTION: &str = "--noaudio";
+const DEBUG_OPTION: &str = "-d";
 const IP_ADDRESS_OPTION: &str = "--ipaddr";
-const OPTION_PREFIX: &str = "--";
+const OPTION_PREFIX: &str = "-";
 const USAGE: &str =
-    "usage: ndiclient [--fullscreen] [--noaudio] [--ipaddr <ip>] <device-name> [stream-name]
+    "usage: ndiclient [-d] [--fullscreen] [--noaudio] [--ipaddr <ip>] <device-name> [stream-name]
        ndiclient [--ipaddr <ip>]          (list discovered sources)";
 
 struct Invocation {
@@ -81,10 +82,18 @@ enum AudioMode {
     Mute,
 }
 
+/// Whether debug messages (such as the displayed frame rate) are printed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verbosity {
+    Quiet,
+    Debug,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ViewOptions {
     window_mode: WindowMode,
     audio_mode: AudioMode,
+    verbosity: Verbosity,
 }
 
 fn main() -> ExitCode {
@@ -175,11 +184,13 @@ fn parse_options(options: &[&String]) -> Result<ViewOptions, String> {
     let mut parsed = ViewOptions {
         window_mode: WindowMode::Windowed,
         audio_mode: AudioMode::Play,
+        verbosity: Verbosity::Quiet,
     };
     for option in options {
         match option.as_str() {
             FULLSCREEN_OPTION => parsed.window_mode = WindowMode::Fullscreen,
             NO_AUDIO_OPTION => parsed.audio_mode = AudioMode::Mute,
+            DEBUG_OPTION => parsed.verbosity = Verbosity::Debug,
             _ => return Err(USAGE.to_string()),
         }
     }
@@ -212,9 +223,18 @@ fn show_video(
     let receiver = Receiver::connect(runtime, &source)?;
     let sdl = sdl2::init()?;
     let mut window = VideoWindow::open(&sdl, &source.name(), options.window_mode)?;
+    let frame_rate = frame_rate_meter(options.verbosity);
     match options.audio_mode {
-        AudioMode::Play => stream_video_and_audio(&sdl, &receiver, &mut window),
-        AudioMode::Mute => stream_video(&receiver, &mut window, None),
+        AudioMode::Play => stream_video_and_audio(&sdl, &receiver, &mut window, frame_rate),
+        AudioMode::Mute => stream_video(&receiver, &mut window, None, frame_rate),
+    }
+}
+
+/// The frame rate is a debug message, so it is only measured when debugging.
+fn frame_rate_meter(verbosity: Verbosity) -> Option<FrameRateMeter> {
+    match verbosity {
+        Verbosity::Debug => Some(FrameRateMeter::new(FRAME_RATE_REPORT_INTERVAL)),
+        Verbosity::Quiet => None,
     }
 }
 
@@ -223,15 +243,16 @@ fn stream_video_and_audio(
     sdl: &sdl2::Sdl,
     receiver: &Receiver,
     window: &mut VideoWindow,
+    frame_rate: Option<FrameRateMeter>,
 ) -> Result<(), String> {
     let buffer = Arc::new(Mutex::new(JitterBuffer::new(AUDIO_LATENCY, AUDIO_FADE)));
     match Speaker::new(sdl, Arc::clone(&buffer)) {
         Ok(mut speaker) => audio_pump::run_alongside(receiver, &buffer, || {
-            stream_video(receiver, window, Some(&mut speaker))
+            stream_video(receiver, window, Some(&mut speaker), frame_rate)
         }),
         Err(error) => {
             report_audio_failure(&error);
-            stream_video(receiver, window, None)
+            stream_video(receiver, window, None, frame_rate)
         }
     }
 }
@@ -240,8 +261,8 @@ fn stream_video(
     receiver: &Receiver,
     window: &mut VideoWindow,
     mut speaker: Option<&mut Speaker>,
+    mut frame_rate: Option<FrameRateMeter>,
 ) -> Result<(), String> {
-    let mut frame_rate = FrameRateMeter::new(FRAME_RATE_REPORT_INTERVAL);
     let mut stall = StallDetector::new(STALL_THRESHOLD);
     while window.handle_events()? == WindowStatus::Open {
         if let Some(speaker) = speaker.as_deref_mut() {
@@ -252,7 +273,9 @@ fn stream_video(
             Capture::Frame(frame) => {
                 show_frame(&frame, window)?;
                 stall.record_frame();
-                report_frame_rate(&mut frame_rate);
+                if let Some(frame_rate) = frame_rate.as_mut() {
+                    report_frame_rate(frame_rate);
+                }
             }
             Capture::ConnectionLost => {
                 return Err("connection to the NDI source was lost".to_string());
@@ -400,10 +423,47 @@ mod tests {
         let expected = ViewOptions {
             window_mode: WindowMode::Fullscreen,
             audio_mode: AudioMode::Mute,
+            verbosity: Verbosity::Quiet,
         };
         assert_eq!(parsed, Some(expected));
     }
 
+    fn verbosity(values: &[&str]) -> Option<Verbosity> {
+        options(values).map(|options| options.verbosity)
+    }
+
+    #[test]
+    fn debug_messages_are_suppressed_by_default() {
+        assert_eq!(verbosity(&["STUDIO"]), Some(Verbosity::Quiet));
+    }
+
+    #[test]
+    fn debug_option_prints_debug_messages() {
+        let parsed = verbosity(&["-d", "STUDIO", "OBS PGM"]);
+        assert_eq!(parsed, Some(Verbosity::Debug));
+    }
+
+    #[test]
+    fn debug_option_may_follow_names() {
+        assert_eq!(verbosity(&["STUDIO", "-d"]), Some(Verbosity::Debug));
+    }
+
+    #[test]
+    fn debug_option_without_device_is_rejected() {
+        assert!(command(&["-d"]).is_err());
+    }
+
+    #[test]
+    fn repeated_debug_option_is_rejected() {
+        assert!(command(&["-d", "STUDIO", "-d"]).is_err());
+    }
+
+    #[test]
+    fn unknown_short_option_is_rejected() {
+        assert!(command(&["-x", "STUDIO"]).is_err());
+    }
+
+    #[test]
     #[test]
     fn noaudio_option_without_device_is_rejected() {
         assert!(command(&["--noaudio"]).is_err());
@@ -486,7 +546,13 @@ mod tests {
 
     #[test]
     fn repeated_ipaddr_option_is_rejected() {
-        let command = command(&["--ipaddr", "198.51.100.1", "--ipaddr", "198.51.100.2", "STUDIO"]);
+        let command = command(&[
+            "--ipaddr",
+            "198.51.100.1",
+            "--ipaddr",
+            "198.51.100.2",
+            "STUDIO",
+        ]);
         assert!(command.is_err());
     }
 }

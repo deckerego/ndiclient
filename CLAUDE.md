@@ -1,7 +1,7 @@
 # ndiclient
 
 Command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
-`ndiclient [--fullscreen] [--noaudio] [--ipaddr <ip>] <device-name> [stream-name]`
+`ndiclient [-d] [--fullscreen] [--noaudio] [--ipaddr <ip>] <device-name> [stream-name]`
 uses NDI discovery to find the source named `DEVICE (Stream)` (or the first
 stream on that device), shows its video in a desktop window or fullscreen and
 plays its audio. `ndiclient [--ipaddr <ip>]` without names lists the sources
@@ -38,6 +38,7 @@ target/release/ndiclient studio.local "OBS PGM"
 target/release/ndiclient STUDIO
 target/release/ndiclient --fullscreen STUDIO "OBS PGM"
 target/release/ndiclient --noaudio STUDIO
+target/release/ndiclient -d STUDIO
 target/release/ndiclient --ipaddr 192.0.2.20 STUDIO "OBS PGM"
 target/release/ndiclient --ipaddr 192.0.2.20
 packaging/build_deb.sh
@@ -65,7 +66,9 @@ packaging/build_deb.sh
 - Kiosk mode: in fullscreen the mouse cursor is hidden. F11 or F switches
   between windowed and fullscreen at runtime (held keys don't repeat it).
 - Close the window or press Escape to quit (also in fullscreen).
-- Prints the displayed frame rate every 5 seconds.
+- `-d` prints debug messages: the displayed frame rate every 5 seconds.
+  Without it they are suppressed (the frame rate isn't even measured).
+  Not valid without a device name.
 - The source is the one whose full NDI name is `<device-name> (<stream-name>)`.
   The device name matches case-insensitively (it is a host name); the stream
   name matches exactly (case-sensitive). Without a stream name, the first
@@ -149,7 +152,7 @@ packaging/build_deb.sh
 
 ```
 src/main.rs          argument parsing (Invocation, Command, ViewOptions:
-                     --fullscreen, --noaudio, --ipaddr), wiring, source
+                     -d, --fullscreen, --noaudio, --ipaddr), wiring, source
                      listing, main capture/display loop
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
 src/sound.rs         Sound / AudioFormat: device-agnostic planar audio view,
@@ -283,7 +286,7 @@ Key decisions:
 - `cargo test`: unit tests for argument parsing, source query matching, the
   frame-rate meter, the stall detector, the UYVY→I420 repacking, window mode
   toggling, key handling, audio interleaving, dropout concealment, the
-  bridge fill, the jitter buffer and the discovery scope (107 tests).
+  bridge fill, the jitter buffer and the discovery scope (114 tests).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
