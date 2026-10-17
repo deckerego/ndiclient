@@ -1,17 +1,16 @@
 //! Raw bindings to the subset of the NDI C API used by this utility.
 //!
-//! Layouts mirror `Processing.NDI.structs.h`, `Processing.NDI.Find.h` and
-//! `Processing.NDI.Recv.h` from NDI SDK v6. C unions whose members share a
+//! Layouts mirror `Processing.NDI.structs.h`, `Processing.NDI.Find.h`,
+//! `Processing.NDI.Recv.h` and `Processing.NDI.FrameSync.h` from NDI SDK v6. C unions whose members share a
 //! size are represented by their first (current) member.
 
 use std::ffi::{c_char, c_float, c_int};
 
 pub type FindInstance = *mut std::ffi::c_void;
 pub type RecvInstance = *mut std::ffi::c_void;
+pub type FrameSyncInstance = *mut std::ffi::c_void;
 
-pub const FRAME_TYPE_VIDEO: c_int = 1;
-pub const FRAME_TYPE_AUDIO: c_int = 2;
-pub const FRAME_TYPE_ERROR: c_int = 4;
+pub const FRAME_FORMAT_TYPE_PROGRESSIVE: c_int = 1;
 
 pub const RECV_COLOR_FORMAT_UYVY_BGRA: c_int = 1;
 pub const RECV_BANDWIDTH_HIGHEST: c_int = 100;
@@ -82,13 +81,22 @@ unsafe extern "C" {
 
     pub fn NDIlib_recv_create_v3(settings: *const RecvCreateV3) -> RecvInstance;
     pub fn NDIlib_recv_destroy(instance: RecvInstance);
-    pub fn NDIlib_recv_capture_v2(
-        instance: RecvInstance,
-        video: *mut VideoFrameV2,
+
+    pub fn NDIlib_framesync_create(receiver: RecvInstance) -> FrameSyncInstance;
+    pub fn NDIlib_framesync_destroy(instance: FrameSyncInstance);
+    pub fn NDIlib_framesync_capture_audio(
+        instance: FrameSyncInstance,
         audio: *mut AudioFrameV2,
-        metadata: *mut std::ffi::c_void,
-        timeout_in_ms: u32,
-    ) -> c_int;
-    pub fn NDIlib_recv_free_video_v2(instance: RecvInstance, video: *const VideoFrameV2);
-    pub fn NDIlib_recv_free_audio_v2(instance: RecvInstance, audio: *const AudioFrameV2);
+        sample_rate: c_int,
+        no_channels: c_int,
+        no_samples: c_int,
+    );
+    pub fn NDIlib_framesync_free_audio(instance: FrameSyncInstance, audio: *mut AudioFrameV2);
+    pub fn NDIlib_framesync_audio_queue_depth(instance: FrameSyncInstance) -> c_int;
+    pub fn NDIlib_framesync_capture_video(
+        instance: FrameSyncInstance,
+        video: *mut VideoFrameV2,
+        field_type: c_int,
+    );
+    pub fn NDIlib_framesync_free_video(instance: FrameSyncInstance, video: *mut VideoFrameV2);
 }

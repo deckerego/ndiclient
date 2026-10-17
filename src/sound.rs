@@ -19,6 +19,14 @@ impl AudioFormat {
     pub fn sample_count(self, duration: std::time::Duration) -> usize {
         self.instant_count(duration) * usize::from(self.channels)
     }
+
+    /// The same format with no more than `count` channels.
+    pub fn narrowed_to(self, count: u16) -> Self {
+        Self {
+            channels: self.channels.min(count),
+            ..self
+        }
+    }
 }
 
 impl fmt::Display for AudioFormat {
@@ -44,12 +52,8 @@ impl Sound<'_> {
     /// Keeps at most the first `count` channels, which in NDI's order are the
     /// front left and right ones.
     pub fn first_channels(self, count: u16) -> Self {
-        let channels = self.format.channels.min(count);
         Self {
-            format: AudioFormat {
-                channels,
-                ..self.format
-            },
+            format: self.format.narrowed_to(count),
             ..self
         }
     }
@@ -94,6 +98,16 @@ mod tests {
     #[test]
     fn sample_count_covers_every_channel() {
         assert_eq!(STEREO_48K.sample_count(Duration::from_millis(10)), 960);
+    }
+
+    #[test]
+    fn narrowing_caps_channel_count() {
+        assert_eq!(STEREO_48K.narrowed_to(1).channels, 1);
+    }
+
+    #[test]
+    fn narrowing_keeps_fewer_channels() {
+        assert_eq!(STEREO_48K.narrowed_to(8), STEREO_48K);
     }
 
     #[test]

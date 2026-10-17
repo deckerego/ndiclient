@@ -1,9 +1,9 @@
-//! Smooths out uneven audio arrival between the network and the sound card.
-//! Playback starts once enough audio is queued to ride out network jitter,
-//! and a backlog (from a burst, or a sender clock that runs fast) is trimmed
-//! so audio does not fall ever further behind the video. Uninterrupted audio
-//! matters more than keeping it close to the video, so every underrun raises
-//! the queued amount. Starts, stops and cuts are faded so they don't click.
+//! Holds audio in reserve between NDI's frame-sync and the sound card.
+//! Playback starts once enough audio is queued to ride out a stall in
+//! delivery, and it is kept topped up to that level from the frame-sync.
+//! Uninterrupted audio matters more than keeping it close to the video, so
+//! every underrun raises the queued amount. Starts, stops and splices are
+//! faded so they don't click.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -15,23 +15,23 @@ const SILENCE: f32 = 0.0;
 
 /// How much audio the buffer holds. Playback (re)starts once the prime level
 /// is queued. It begins at `start` and doubles after every underrun, up to
-/// `limit`. A queue longer than the prime level plus `headroom` is cut back
-/// to the prime level.
+/// `limit`.
 #[derive(Clone, Copy, Debug)]
 pub struct AudioLatency {
     pub start: Duration,
     pub limit: Duration,
-    pub headroom: Duration,
 }
 
 pub struct JitterBuffer {
     latency: AudioLatency,
-    /// Length of the fades at playback starts, underruns and cuts.
+    /// Length of the fades at playback starts, underruns and splices.
     fade: Duration,
     prime_level: Duration,
     format: Option<AudioFormat>,
     samples: VecDeque<f32>,
     playing: bool,
+    /// Whether the next audio pushed follows a splice and fades in.
+    spliced: bool,
 }
 
 impl JitterBuffer {
@@ -43,6 +43,7 @@ impl JitterBuffer {
             format: None,
             samples: VecDeque::new(),
             playing: false,
+            spliced: false,
         }
     }
 
@@ -56,6 +57,18 @@ impl JitterBuffer {
         self.prime_level
     }
 
+    /// How many instants of audio in `format` are missing to the prime level.
+    pub fn shortfall(&self, format: AudioFormat) -> usize {
+        let queued = if self.format == Some(format) {
+            self.samples.len() / usize::from(format.channels)
+        } else {
+            0
+        };
+        format
+            .instant_count(self.prime_level)
+            .saturating_sub(queued)
+    }
+
     /// Queues interleaved samples. Audio still queued in an older format is
     /// discarded, since it can no longer be played.
     pub fn push(&mut self, format: AudioFormat, samples: impl IntoIterator<Item = f32>) {
@@ -63,9 +76,34 @@ impl JitterBuffer {
             self.format = Some(format);
             self.samples.clear();
             self.playing = false;
+            self.spliced = false;
         }
+        let start = self.samples.len();
         self.samples.extend(samples);
-        self.trim_backlog(format);
+        if self.spliced && self.samples.len() > start {
+            self.spliced = false;
+            let end = self.samples.len().min(start + self.fade_samples(format));
+            apply_fade(
+                format,
+                self.samples.range_mut(start..end),
+                FadeDirection::In,
+            );
+        }
+    }
+
+    /// Prepares for audio that doesn't carry on from the queued audio: the
+    /// queue's end fades out and the next audio pushed fades in.
+    pub fn splice(&mut self) {
+        let Some(format) = self.format else {
+            return;
+        };
+        if self.spliced {
+            return;
+        }
+        self.spliced = true;
+        let fade = self.fade_samples(format).min(self.samples.len());
+        let tail = self.samples.len() - fade;
+        apply_fade(format, self.samples.range_mut(tail..), FadeDirection::Out);
     }
 
     /// Fills `output` with interleaved samples in `format`, or with silence
@@ -103,26 +141,6 @@ impl JitterBuffer {
         apply_fade(format, played[tail..].iter_mut(), FadeDirection::Out);
         self.playing = false;
         self.prime_level = (self.prime_level * 2).min(self.latency.limit);
-    }
-
-    /// Cuts the queue back to the prime level, cross-fading from the audio
-    /// that would have played next into the audio that plays after the cut.
-    fn trim_backlog(&mut self, format: AudioFormat) {
-        let max = format.sample_count(self.prime_level + self.latency.headroom);
-        if self.samples.len() <= max {
-            return;
-        }
-        // Both counts are whole instants, so the cut keeps channels aligned.
-        let excess = self.samples.len() - format.sample_count(self.prime_level);
-        let fade = self.fade_samples(format).min(self.samples.len() - excess);
-        let instants = fade / usize::from(format.channels);
-        for index in 0..fade {
-            let weight = fade_weight(index / usize::from(format.channels), instants);
-            let cut_from = self.samples[index];
-            let cut_to = &mut self.samples[excess + index];
-            *cut_to = cut_from * (1.0 - weight) + *cut_to * weight;
-        }
-        self.samples.drain(..excess);
     }
 
     fn fade_samples(&self, format: AudioFormat) -> usize {
@@ -180,7 +198,6 @@ mod tests {
     const LATENCY: AudioLatency = AudioLatency {
         start: Duration::from_millis(4),
         limit: Duration::from_millis(12),
-        headroom: Duration::from_millis(4),
     };
     const NO_FADE: Duration = Duration::ZERO;
     /// One instant: its gain is 1/2, which keeps faded values exact.
@@ -265,17 +282,45 @@ mod tests {
     }
 
     #[test]
-    fn backlog_at_max_is_kept() {
-        let mut buffer = JitterBuffer::new(LATENCY, NO_FADE);
-        buffer.push(MONO_1K, ramp(8));
-        assert_eq!(pulled(&mut buffer, MONO_1K, 1), [1.0]);
+    fn shortfall_of_empty_buffer_is_prime_level() {
+        let buffer = JitterBuffer::new(LATENCY, NO_FADE);
+        assert_eq!(buffer.shortfall(MONO_1K), 4);
     }
 
     #[test]
-    fn backlog_beyond_max_is_cut_to_newest_start_level() {
+    fn shortfall_leaves_out_queued_audio() {
         let mut buffer = JitterBuffer::new(LATENCY, NO_FADE);
-        buffer.push(MONO_1K, ramp(9));
-        assert_eq!(pulled(&mut buffer, MONO_1K, 5), [6.0, 7.0, 8.0, 9.0, 0.0]);
+        buffer.push(MONO_1K, ramp(3));
+        assert_eq!(buffer.shortfall(MONO_1K), 1);
+    }
+
+    #[test]
+    fn primed_buffer_has_no_shortfall() {
+        let mut buffer = JitterBuffer::new(LATENCY, NO_FADE);
+        buffer.push(MONO_1K, ramp(5));
+        assert_eq!(buffer.shortfall(MONO_1K), 0);
+    }
+
+    #[test]
+    fn shortfall_counts_instants() {
+        let mut buffer = JitterBuffer::new(LATENCY, NO_FADE);
+        buffer.push(STEREO_1K, ramp(2));
+        assert_eq!(buffer.shortfall(STEREO_1K), 3);
+    }
+
+    #[test]
+    fn audio_in_other_format_does_not_count() {
+        let mut buffer = JitterBuffer::new(LATENCY, NO_FADE);
+        buffer.push(MONO_1K, ramp(4));
+        assert_eq!(buffer.shortfall(STEREO_1K), 4);
+    }
+
+    #[test]
+    fn shortfall_follows_raised_prime_level() {
+        let mut buffer = JitterBuffer::new(LATENCY, NO_FADE);
+        buffer.push(MONO_1K, ramp(4));
+        pulled(&mut buffer, MONO_1K, 6);
+        assert_eq!(buffer.shortfall(MONO_1K), 8);
     }
 
     #[test]
@@ -303,15 +348,6 @@ mod tests {
     }
 
     #[test]
-    fn backlog_limit_follows_prime_level() {
-        let mut buffer = JitterBuffer::new(LATENCY, NO_FADE);
-        buffer.push(MONO_1K, ramp(4));
-        pulled(&mut buffer, MONO_1K, 6);
-        buffer.push(MONO_1K, ramp(12));
-        assert_eq!(pulled(&mut buffer, MONO_1K, 1), [1.0]);
-    }
-
-    #[test]
     fn playback_fades_in() {
         let mut buffer = JitterBuffer::new(LATENCY, SHORT_FADE);
         buffer.push(MONO_1K, ramp(4));
@@ -327,12 +363,39 @@ mod tests {
     }
 
     #[test]
-    fn backlog_cut_cross_fades() {
+    fn splice_fades_out_queued_end() {
         let mut buffer = JitterBuffer::new(LATENCY, SHORT_FADE);
         buffer.push(MONO_1K, ramp(4));
-        pulled(&mut buffer, MONO_1K, 4);
-        buffer.push(MONO_1K, ramp(9));
-        assert_eq!(pulled(&mut buffer, MONO_1K, 4), [3.5, 7.0, 8.0, 9.0]);
+        buffer.splice();
+        assert_eq!(pulled(&mut buffer, MONO_1K, 4), [0.5, 2.0, 3.0, 2.0]);
+    }
+
+    #[test]
+    fn audio_after_splice_fades_in() {
+        let mut buffer = JitterBuffer::new(LATENCY, SHORT_FADE);
+        buffer.push(MONO_1K, ramp(4));
+        buffer.splice();
+        buffer.push(MONO_1K, ramp(2));
+        assert_eq!(pulled(&mut buffer, MONO_1K, 6)[4..], [0.5, 2.0]);
+    }
+
+    #[test]
+    fn only_the_first_push_after_splice_fades_in() {
+        let mut buffer = JitterBuffer::new(LATENCY, SHORT_FADE);
+        buffer.push(MONO_1K, ramp(4));
+        buffer.splice();
+        buffer.push(MONO_1K, ramp(1));
+        buffer.push(MONO_1K, ramp(1));
+        assert_eq!(pulled(&mut buffer, MONO_1K, 6)[4..], [0.5, 1.0]);
+    }
+
+    #[test]
+    fn repeated_splice_fades_out_once() {
+        let mut buffer = JitterBuffer::new(LATENCY, SHORT_FADE);
+        buffer.push(MONO_1K, ramp(4));
+        buffer.splice();
+        buffer.splice();
+        assert_eq!(pulled(&mut buffer, MONO_1K, 4)[3], 2.0);
     }
 
     #[test]
