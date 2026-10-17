@@ -1,19 +1,19 @@
 Architectures: arm64
 Codename: trixie
 Components: main
-Date: Thu, 15 Oct 2026 20:36:27 +0000
+Date: Sat, 17 Oct 2026 01:53:51 +0000
 Label: ndiclient
 Origin: ndiclient
 Suite: trixie
 MD5Sum:
- 8ef2a123419e7122246448550613097d             4584 main/binary-arm64/Packages
- fcb5fcf7a95e1dc47d5021b2c0a1f723             1347 main/binary-arm64/Packages.gz
+ 3ee65e33aabc650f048b5e5c94afe4d9             5739 main/binary-arm64/Packages
+ f7913ab34162d3d3de5956091615bcbb             1541 main/binary-arm64/Packages.gz
 SHA1:
- f8b00485e8beeb25738af50685434a1f456eb88f             4584 main/binary-arm64/Packages
- f01cbfc2f3ce8fb0bb38ef0ee8888146de33d1b7             1347 main/binary-arm64/Packages.gz
+ 15683d17e29ea7deed2cfa80e989808f1d612295             5739 main/binary-arm64/Packages
+ 0ade935f28d3dbb9f44d7105c6eecd36ed4aee5d             1541 main/binary-arm64/Packages.gz
 SHA256:
- af7d7dc7cb07fd29ff0f2caa40bbf8a5a46e3aa8bc751a39a901af895c9c10a6             4584 main/binary-arm64/Packages
- 0cef8278f4cc991c4cebdeaaf2a69e67c302b4d84484ae826ce52198cbbbff60             1347 main/binary-arm64/Packages.gz
+ 02c4a5421a1a404ea581dcb100c24040a2aeec719dd068e323b102d5ff536445             5739 main/binary-arm64/Packages
+ 7d11236ed15e2c855807ed4f09d943c17689a684091ee7a457f2bf1dec589a7c             1541 main/binary-arm64/Packages.gz
 SHA512:
- 8fd1ecb60145753f056db1be3181cb710347f395eb1855194ddf9b7a98db5af29fabe71d74e01e2747de6e91a9bba9c3360e67cbdb56cef8e356f53053b7243f             4584 main/binary-arm64/Packages
- 1ccbed8ce166a30124d2a6d4092ca458b55efb2acf0808e4467b8fa328ec6beebe36f92468707348dab57c7d9322def377d5e1f02ab7d0cd6e71a95bc67b034a             1347 main/binary-arm64/Packages.gz
+ 5f67462bbac893df73ebf26aa8fd3535581c0fd9f417fd745c162b46d935a4c17c89ce598c76e660fac3e4a3a7a2196fea7894b2e01e0bd59c233851c650edd3             5739 main/binary-arm64/Packages
+ d40e9a37aef8b25700dfe41274905001a1e9945d12b0e058fb0b673cbfee58645a13f899f2c3d947af0314c1a278197d7dd79d2f7bf1fe91af02260acc0c6dd6             1541 main/binary-arm64/Packages.gz
