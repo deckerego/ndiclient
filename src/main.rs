@@ -4,13 +4,12 @@
 //! sources it discovers. `--ipaddr` restricts both to one IP address.
 
 mod audio_pump;
-mod bridge;
 mod display;
-mod dropout;
 mod frame_rate;
 mod i420;
 mod jitter_buffer;
 mod ndi;
+mod padding;
 mod picture;
 mod sound;
 mod speaker;
@@ -25,24 +24,21 @@ use std::time::Duration;
 use display::{VideoWindow, WindowMode, WindowStatus};
 use frame_rate::FrameRateMeter;
 use jitter_buffer::{AudioLatency, JitterBuffer};
-use ndi::{Capture, DiscoveryScope, NdiRuntime, Receiver, SourceFinder, SourceQuery};
+use ndi::{DiscoveryScope, FrameStamp, FrameSync, NdiRuntime, Receiver, SourceFinder, SourceQuery};
 use speaker::Speaker;
 use stall::StallDetector;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
 /// Long enough for sources on a typical LAN to answer mDNS discovery.
 const LISTING_DURATION: Duration = Duration::from_secs(5);
-/// Short enough to keep the window responsive while no frames arrive.
-const CAPTURE_TIMEOUT: Duration = Duration::from_millis(100);
 const FRAME_RATE_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 const STALL_THRESHOLD: Duration = Duration::from_secs(3);
-/// Audio plays this far behind its arrival. Unbroken audio matters more
-/// than closeness to the video (shown as it arrives), so it starts beyond
-/// the arrival gaps seen on a loaded Wi-Fi and underruns raise it further.
+/// Audio held in reserve on top of the frame-sync's own queue. Unbroken
+/// audio matters more than closeness to the video, so it starts beyond the
+/// arrival gaps seen on a loaded Wi-Fi and underruns raise it further.
 const AUDIO_LATENCY: AudioLatency = AudioLatency {
     start: Duration::from_millis(100),
     limit: Duration::from_millis(400),
-    headroom: Duration::from_millis(150),
 };
 /// Short enough not to be heard as a fade, long enough not to click.
 const AUDIO_FADE: Duration = Duration::from_millis(5);
@@ -221,12 +217,13 @@ fn show_video(
     println!("Connecting to \"{}\"", source.name());
 
     let receiver = Receiver::connect(runtime, &source)?;
+    let frame_sync = FrameSync::new(&receiver)?;
     let sdl = sdl2::init()?;
     let mut window = VideoWindow::open(&sdl, &source.name(), options.window_mode)?;
     let frame_rate = frame_rate_meter(options.verbosity);
     match options.audio_mode {
-        AudioMode::Play => stream_video_and_audio(&sdl, &receiver, &mut window, frame_rate),
-        AudioMode::Mute => stream_video(&receiver, &mut window, None, frame_rate),
+        AudioMode::Play => stream_video_and_audio(&sdl, &frame_sync, &mut window, frame_rate),
+        AudioMode::Mute => stream_video(&frame_sync, &mut window, None, frame_rate),
     }
 }
 
@@ -241,46 +238,52 @@ fn frame_rate_meter(verbosity: Verbosity) -> Option<FrameRateMeter> {
 /// Plays the audio alongside the video; without a usable audio output, the video still shows.
 fn stream_video_and_audio(
     sdl: &sdl2::Sdl,
-    receiver: &Receiver,
+    frame_sync: &FrameSync,
     window: &mut VideoWindow,
     frame_rate: Option<FrameRateMeter>,
 ) -> Result<(), String> {
     let buffer = Arc::new(Mutex::new(JitterBuffer::new(AUDIO_LATENCY, AUDIO_FADE)));
     match Speaker::new(sdl, Arc::clone(&buffer)) {
-        Ok(mut speaker) => audio_pump::run_alongside(receiver, &buffer, || {
-            stream_video(receiver, window, Some(&mut speaker), frame_rate)
+        Ok(mut speaker) => audio_pump::run_alongside(frame_sync, &buffer, || {
+            stream_video(frame_sync, window, Some(&mut speaker), frame_rate)
         }),
         Err(error) => {
             report_audio_failure(&error);
-            stream_video(receiver, window, None, frame_rate)
+            stream_video(frame_sync, window, None, frame_rate)
         }
     }
 }
 
+/// Draws once per display refresh, paced by vsync: a frame the source has
+/// newly sent is uploaded, otherwise the last picture is drawn again.
 fn stream_video(
-    receiver: &Receiver,
+    frame_sync: &FrameSync,
     window: &mut VideoWindow,
     mut speaker: Option<&mut Speaker>,
     mut frame_rate: Option<FrameRateMeter>,
 ) -> Result<(), String> {
     let mut stall = StallDetector::new(STALL_THRESHOLD);
+    let mut shown: Option<FrameStamp> = None;
     while window.handle_events()? == WindowStatus::Open {
         if let Some(speaker) = speaker.as_deref_mut() {
             follow_audio_format(speaker);
             report_audio_latency(speaker);
         }
-        match receiver.capture_video(CAPTURE_TIMEOUT) {
-            Capture::Frame(frame) => {
+        let frame = frame_sync.capture_video();
+        let stamp = frame.as_ref().map(ndi::VideoFrame::stamp);
+        match frame {
+            Some(frame) if stamp != shown => {
                 show_frame(&frame, window)?;
+                shown = stamp;
                 stall.record_frame();
                 if let Some(frame_rate) = frame_rate.as_mut() {
                     report_frame_rate(frame_rate);
                 }
             }
-            Capture::ConnectionLost => {
-                return Err("connection to the NDI source was lost".to_string());
+            _ => {
+                window.present()?;
+                report_stall(&mut stall);
             }
-            Capture::Nothing => report_stall(&mut stall),
         }
     }
     Ok(())
@@ -463,7 +466,6 @@ mod tests {
         assert!(command(&["-x", "STUDIO"]).is_err());
     }
 
-    #[test]
     #[test]
     fn noaudio_option_without_device_is_rejected() {
         assert!(command(&["--noaudio"]).is_err());

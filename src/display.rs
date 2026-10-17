@@ -207,7 +207,7 @@ impl VideoWindow {
     }
 
     /// Draws the latest picture, or black before the first one arrives.
-    fn present(&mut self) -> Result<(), String> {
+    pub fn present(&mut self) -> Result<(), String> {
         self.canvas.clear();
         if let Some(current) = &self.stream_texture {
             self.canvas.copy(&current.texture, None, None)?;
