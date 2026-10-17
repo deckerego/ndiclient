@@ -111,8 +111,9 @@ packaging/build_deb.sh
   `/etc/os-release` (`+deb13` on trixie, `+deb12` on bookworm), so builds
   for different Debian releases get distinct versions and file names, and
   a Debian upgrade upgrades the package; the build fails if its upstream part differs
-  from Cargo.toml's version, so bump both together (and add a changelog
-  entry). Keep `packaging/debian/ndiclient.1` in sync with the usage.
+  from Cargo.toml's version. Releases stamp both (see Distribution); a
+  local build of a new version needs `packaging/stamp_release.sh`. Keep
+  `packaging/debian/ndiclient.1` in sync with the usage.
 - Distribution: `.github/workflows/apt-repository.yml` builds the package in
   a `debian:trixie` and a `debian:bookworm` container (a build matrix, one
   leg per Debian release; Raspberry Pi OS's current and previous release)
@@ -121,9 +122,19 @@ packaging/build_deb.sh
   `y` piped in (the repository owner accepted the EULA), after checking the
   download against `NDI_SDK_SHA256`. NDI replaces that download in place,
   so a new SDK release fails the check until the checksum is updated. It
-  runs only when a GitHub release is published (its tag `vX.Y.Z` must match
-  Cargo.toml). Releases created with the workflow `GITHUB_TOKEN` don't
-  trigger it (GitHub prevents that). Two jobs keep the signing key away
+  runs when a GitHub release is published (or by hand on a release tag).
+  The tag is the version, `X.Y.Z` without a `v`: a `release` job reads the
+  release's notes and publish date with `gh`, and
+  `packaging/stamp_release.sh` writes the version into Cargo.toml and
+  Cargo.lock and adds a changelog entry (one item per non-blank line of
+  the notes, Markdown list/heading markers removed; the maintainer from
+  `control.in`) before building. It fails on a tag that isn't `X.Y.Z` or
+  is older than the changelog, and adds no entry if the changelog already
+  has that version. After publishing, a `commit` job stamps `main` the
+  same way and pushes the result as the `github-actions[bot]` "Release
+  X.Y.Z" commit (nothing if `main` already has it), so branch protection
+  on `main` must let `GITHUB_TOKEN` push. Releases created with the
+  workflow `GITHUB_TOKEN` don't trigger it (GitHub prevents that). Two jobs keep the signing key away
   from third-party code: `build` (NDI installer, cargo; read-only token, no
   secrets) uploads each `.deb` as artifact `debian-package-<distribution>`;
   `publish` waits for all legs, downloads them in a fresh trixie container,
@@ -180,9 +191,9 @@ src/ndi/receiver.rs  Receiver: the connection to the chosen source
 src/ndi/frame_sync.rs FrameSync / VideoFrame / FrameStamp / AudioFrame: NDI
                      frame synchronizer, frames pulled at the local clocks
 tools/               test-pattern NDI sender used for development (C)
-packaging/           build_deb.sh, update_apt_repo.sh; Debian control
-                     template, copyright, changelog and man page
-                     (packaging/debian/)
+packaging/           build_deb.sh, update_apt_repo.sh, stamp_release.sh;
+                     Debian control template, copyright, changelog and
+                     man page (packaging/debian/)
 ```
 
 Key decisions:
