@@ -1,7 +1,5 @@
-# To publish a release, bump the version here, 
-# run `cargo update --workspace` to update the lock file, 
-# add a matching entry to `packaging/debian/changelog`, 
-# merge, then publish a GitHub release tagged with that version.
+# The version is set when a GitHub release is published: the APT repository
+# workflow takes it from the release tag (X.Y.Z, no "v") and commits it to main.
 [package]
 name = "ndiclient"
 version = "0.3.1"

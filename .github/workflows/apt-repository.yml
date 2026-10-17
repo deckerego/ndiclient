@@ -1,9 +1,12 @@
 name: APT repository
 
-# Publishing a GitHub release (tagged vX.Y.Z, matching Cargo.toml) builds the
-# package for each supported Debian release and adds each build to that
-# release's distribution in the APT repository on the gh-pages branch, which
-# GitHub Pages serves. Draft releases don't run it until they are published.
+# Publishing a GitHub release (tagged X.Y.Z, without a "v") builds the package
+# for each supported Debian release and adds each build to that release's
+# distribution in the APT repository on the gh-pages branch, which GitHub
+# Pages serves. The tag is the version: it is stamped into Cargo.toml,
+# Cargo.lock and the Debian changelog (with the release notes as its entry)
+# before building, and committed to main once the repository is published.
+# Draft releases don't run it until they are published.
 on:
   release:
     types: [published]
@@ -17,9 +20,35 @@ concurrency:
 # Actions are pinned to commit SHAs and the images to digests, so a moved tag
 # can't change what runs. The comments name the version each pin was taken from.
 jobs:
+  # Looks the release up by its tag rather than reading the event, so a manual
+  # run on a release tag gets the same notes and date as the original run.
+  release:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    outputs:
+      notes: ${{ steps.release.outputs.notes }}
+      published-at: ${{ steps.release.outputs.published-at }}
+    steps:
+      - name: Read the release notes
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          published_at="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json publishedAt --jq .publishedAt)"
+          notes="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+          delimiter="EOF_$(openssl rand -hex 16)"
+          {
+            echo "published-at=$published_at"
+            echo "notes<<$delimiter"
+            echo "$notes"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
   # Runs third-party code (the NDI installer, crate build scripts) as root,
   # so it gets no secrets and only a read-only token.
   build:
+    needs: release
     runs-on: ubuntu-24.04-arm
     # Built on each Debian release Raspberry Pi OS is based on (the current
     # one and the one before), so dpkg-shlibdeps derives dependencies that
@@ -56,13 +85,14 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Check the tag matches Cargo.toml
+      # Fails unless the tag is X.Y.Z and not older than the changelog.
+      - name: Stamp the release version
+        env:
+          RELEASE_NOTES: ${{ needs.release.outputs.notes }}
+          RELEASE_DATE: ${{ needs.release.outputs.published-at }}
         run: |
-          cargo_version="$(cargo pkgid | sed 's/.*[#@]//')"
-          if [ "$GITHUB_REF_NAME" != "$cargo_version" ]; then
-            echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $cargo_version" >&2
-            exit 1
-          fi
+          printf '%s\n' "$RELEASE_NOTES" \
+            | packaging/stamp_release.sh "$GITHUB_REF_NAME" "$RELEASE_DATE"
 
       # The installer shows the NDI SDK license and asks for agreement. The
       # repository owner has accepted it; piping "y" records that acceptance
@@ -163,3 +193,51 @@ jobs:
           git add --all
           git commit -m "Publish ndiclient from ${GITHUB_REF_NAME} (${GITHUB_SHA})"
           git push origin "$PAGES_BRANCH"
+
+  # Stamps main the same way the build stamped the tag, so main carries the
+  # released version. Nothing from the build reaches it, and it needs no
+  # secrets. It commits nothing if main already has the version.
+  commit:
+    needs: [release, publish]
+    runs-on: ubuntu-24.04-arm
+    container: *trixie
+    permissions:
+      contents: write
+    env:
+      MAIN_BRANCH: main
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git dpkg-dev
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.MAIN_BRANCH }}
+
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+
+      - name: Stamp the release version
+        env:
+          RELEASE_NOTES: ${{ needs.release.outputs.notes }}
+          RELEASE_DATE: ${{ needs.release.outputs.published-at }}
+        run: |
+          printf '%s\n' "$RELEASE_NOTES" \
+            | packaging/stamp_release.sh "$GITHUB_REF_NAME" "$RELEASE_DATE"
+
+      - name: Commit the release version to main
+        run: |
+          # The container runs as root on a workspace the runner user owns.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock packaging/debian/changelog
+          if git diff --cached --quiet; then
+            echo "$MAIN_BRANCH already has release $GITHUB_REF_NAME"
+            exit 0
+          fi
+          git commit -m "Release ${GITHUB_REF_NAME}"
+          git push origin "HEAD:$MAIN_BRANCH"
