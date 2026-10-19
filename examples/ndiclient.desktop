@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ndiclient
+Exec=/home/pi/show_obs.sh
+Terminal=false
+Path=
+StartupNotify=false
+GenericName=Show NDI Feed from OBS
+Comment[en_GB]=
+Name[en_GB]=OBS Program
