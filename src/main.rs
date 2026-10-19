@@ -2,6 +2,7 @@
 //! optionally stream name), shows its video in a desktop window or
 //! fullscreen and plays its audio. Without arguments it lists the NDI
 //! sources it discovers. `--ipaddr` restricts both to one IP address.
+//! `--wait-image` shows a BMP image while the source sends no video.
 
 mod audio_pump;
 mod display;
@@ -14,9 +15,11 @@ mod picture;
 mod sound;
 mod speaker;
 mod stall;
+mod wait_image;
 
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -27,6 +30,7 @@ use jitter_buffer::{AudioLatency, JitterBuffer};
 use ndi::{DiscoveryScope, FrameStamp, FrameSync, NdiRuntime, Receiver, SourceFinder, SourceQuery};
 use speaker::Speaker;
 use stall::StallDetector;
+use wait_image::WaitImage;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
 /// Long enough for sources on a typical LAN to answer mDNS discovery.
@@ -46,9 +50,11 @@ const FULLSCREEN_OPTION: &str = "--fullscreen";
 const NO_AUDIO_OPTION: &str = "--noaudio";
 const DEBUG_OPTION: &str = "-d";
 const IP_ADDRESS_OPTION: &str = "--ipaddr";
+const WAIT_IMAGE_OPTION: &str = "--wait-image";
 const OPTION_PREFIX: &str = "-";
 const USAGE: &str =
-    "usage: ndiclient [-d] [--fullscreen] [--noaudio] [--ipaddr <ip>] <device-name> [stream-name]
+    "usage: ndiclient [-d] [--fullscreen] [--noaudio] [--ipaddr <ip>] [--wait-image <file.bmp>]
+                 <device-name> [stream-name]
        ndiclient [--ipaddr <ip>]          (list discovered sources)";
 
 struct Invocation {
@@ -68,6 +74,7 @@ enum Command {
 struct SortedArguments<'a> {
     names: Vec<&'a String>,
     view_options: Vec<&'a String>,
+    wait_image: Option<PathBuf>,
     scope: DiscoveryScope,
 }
 
@@ -85,11 +92,13 @@ enum Verbosity {
     Debug,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ViewOptions {
     window_mode: WindowMode,
     audio_mode: AudioMode,
     verbosity: Verbosity,
+    /// Shown instead of the video while the source sends none.
+    wait_image: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -120,18 +129,18 @@ fn run() -> Result<(), String> {
 
 fn parse_arguments(arguments: &[String]) -> Result<Invocation, String> {
     let sorted = sort_arguments(arguments)?;
-    let command = parse_command(&sorted.names, &sorted.view_options)?;
-    Ok(Invocation {
-        scope: sorted.scope,
-        command,
-    })
+    let scope = sorted.scope;
+    let command = parse_command(sorted)?;
+    Ok(Invocation { scope, command })
 }
 
-/// `--ipaddr` takes the argument after it as its value; other options stand alone.
+/// `--ipaddr` and `--wait-image` take the argument after them as their
+/// value; other options stand alone.
 fn sort_arguments(arguments: &[String]) -> Result<SortedArguments<'_>, String> {
     let mut sorted = SortedArguments {
         names: Vec::new(),
         view_options: Vec::new(),
+        wait_image: None,
         scope: DiscoveryScope::Network,
     };
     let mut remaining = arguments.iter();
@@ -141,6 +150,12 @@ fn sort_arguments(arguments: &[String]) -> Result<SortedArguments<'_>, String> {
                 return Err(USAGE.to_string());
             }
             sorted.scope = DiscoveryScope::Address(parse_ip_address(remaining.next())?);
+        } else if argument == WAIT_IMAGE_OPTION {
+            if sorted.wait_image.is_some() {
+                return Err(USAGE.to_string());
+            }
+            let path = remaining.next().ok_or_else(|| USAGE.to_string())?;
+            sorted.wait_image = Some(PathBuf::from(path));
         } else if argument.starts_with(OPTION_PREFIX) {
             sorted.view_options.push(argument);
         } else {
@@ -157,22 +172,21 @@ fn parse_ip_address(value: Option<&String>) -> Result<IpAddr, String> {
         .map_err(|_| format!("\"{value}\" is not an IP address\n{USAGE}"))
 }
 
-fn parse_command(names: &[&String], view_options: &[&String]) -> Result<Command, String> {
-    match names {
-        [] if view_options.is_empty() => Ok(Command::ListSources),
-        [device_name] => Ok(Command::ShowVideo {
-            query: SourceQuery::any_stream_on(device_name.to_string()),
-            options: parse_options(view_options)?,
-        }),
-        [device_name, stream_name] => Ok(Command::ShowVideo {
-            query: SourceQuery::named_stream_on(device_name.to_string(), stream_name.to_string()),
-            options: parse_options(view_options)?,
-        }),
-        _ => Err(USAGE.to_string()),
-    }
+fn parse_command(sorted: SortedArguments) -> Result<Command, String> {
+    let lists_sources = sorted.view_options.is_empty() && sorted.wait_image.is_none();
+    let query = match sorted.names.as_slice() {
+        [] if lists_sources => return Ok(Command::ListSources),
+        [device_name] => SourceQuery::any_stream_on(device_name.to_string()),
+        [device_name, stream_name] => {
+            SourceQuery::named_stream_on(device_name.to_string(), stream_name.to_string())
+        }
+        _ => return Err(USAGE.to_string()),
+    };
+    let options = parse_options(&sorted.view_options, sorted.wait_image)?;
+    Ok(Command::ShowVideo { query, options })
 }
 
-fn parse_options(options: &[&String]) -> Result<ViewOptions, String> {
+fn parse_options(options: &[&String], wait_image: Option<PathBuf>) -> Result<ViewOptions, String> {
     let distinct: HashSet<&&String> = options.iter().collect();
     if distinct.len() != options.len() {
         return Err(USAGE.to_string());
@@ -181,6 +195,7 @@ fn parse_options(options: &[&String]) -> Result<ViewOptions, String> {
         window_mode: WindowMode::Windowed,
         audio_mode: AudioMode::Play,
         verbosity: Verbosity::Quiet,
+        wait_image,
     };
     for option in options {
         match option.as_str() {
@@ -212,6 +227,7 @@ fn show_video(
     scope: DiscoveryScope,
     options: ViewOptions,
 ) -> Result<(), String> {
+    let wait_image = load_wait_image(options.wait_image)?;
     println!("Searching for {query}{}...", scope.location_suffix());
     let source = finder.find_source(query, DISCOVERY_TIMEOUT)?;
     println!("Connecting to \"{}\"", source.name());
@@ -219,12 +235,16 @@ fn show_video(
     let receiver = Receiver::connect(runtime, &source)?;
     let frame_sync = FrameSync::new(&receiver)?;
     let sdl = sdl2::init()?;
-    let mut window = VideoWindow::open(&sdl, &source.name(), options.window_mode)?;
+    let mut window = VideoWindow::open(&sdl, &source.name(), options.window_mode, wait_image)?;
     let frame_rate = frame_rate_meter(options.verbosity);
     match options.audio_mode {
         AudioMode::Play => stream_video_and_audio(&sdl, &frame_sync, &mut window, frame_rate),
         AudioMode::Mute => stream_video(&frame_sync, &mut window, None, frame_rate),
     }
+}
+
+fn load_wait_image(path: Option<PathBuf>) -> Result<Option<WaitImage>, String> {
+    path.map(|path| WaitImage::load(&path)).transpose()
 }
 
 /// The frame rate is a debug message, so it is only measured when debugging.
@@ -281,8 +301,10 @@ fn stream_video(
                 }
             }
             _ => {
+                if stall.take_new_stall() {
+                    report_stall(window)?;
+                }
                 window.present()?;
-                report_stall(&mut stall);
             }
         }
     }
@@ -320,10 +342,10 @@ fn report_frame_rate(frame_rate: &mut FrameRateMeter) {
     }
 }
 
-fn report_stall(stall: &mut StallDetector) {
-    if stall.take_new_stall() {
-        println!("Waiting for video...");
-    }
+/// Shows the wait image (if any) until video returns, besides telling the console.
+fn report_stall(window: &mut VideoWindow) -> Result<(), String> {
+    println!("Waiting for video...");
+    window.show_wait_image()
 }
 
 #[cfg(test)]
@@ -427,6 +449,7 @@ mod tests {
             window_mode: WindowMode::Fullscreen,
             audio_mode: AudioMode::Mute,
             verbosity: Verbosity::Quiet,
+            wait_image: None,
         };
         assert_eq!(parsed, Some(expected));
     }
@@ -553,6 +576,61 @@ mod tests {
             "198.51.100.1",
             "--ipaddr",
             "198.51.100.2",
+            "STUDIO",
+        ]);
+        assert!(command.is_err());
+    }
+
+    fn wait_image(values: &[&str]) -> Option<Option<PathBuf>> {
+        options(values).map(|options| options.wait_image)
+    }
+
+    #[test]
+    fn no_wait_image_by_default() {
+        assert_eq!(wait_image(&["STUDIO"]), Some(None));
+    }
+
+    #[test]
+    fn wait_image_option_takes_path() {
+        let parsed = wait_image(&["--wait-image", "standby.bmp", "STUDIO", "OBS PGM"]);
+        assert_eq!(parsed, Some(Some(PathBuf::from("standby.bmp"))));
+    }
+
+    #[test]
+    fn wait_image_option_may_follow_names() {
+        let parsed = wait_image(&["STUDIO", "--wait-image", "standby.bmp"]);
+        assert_eq!(parsed, Some(Some(PathBuf::from("standby.bmp"))));
+    }
+
+    #[test]
+    fn wait_image_path_is_not_taken_as_stream_name() {
+        let command = command(&["STUDIO", "--wait-image", "standby.bmp", "extra", "more"]);
+        assert!(command.is_err());
+    }
+
+    #[test]
+    fn wait_image_option_combines_with_view_options() {
+        let mode = window_mode(&["--fullscreen", "--wait-image", "standby.bmp", "STUDIO"]);
+        assert_eq!(mode, Some(WindowMode::Fullscreen));
+    }
+
+    #[test]
+    fn wait_image_option_without_device_is_rejected() {
+        assert!(command(&["--wait-image", "standby.bmp"]).is_err());
+    }
+
+    #[test]
+    fn wait_image_option_without_path_is_rejected() {
+        assert!(command(&["STUDIO", "--wait-image"]).is_err());
+    }
+
+    #[test]
+    fn repeated_wait_image_option_is_rejected() {
+        let command = command(&[
+            "--wait-image",
+            "standby.bmp",
+            "--wait-image",
+            "offline.bmp",
             "STUDIO",
         ]);
         assert!(command.is_err());
