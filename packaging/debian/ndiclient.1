@@ -13,6 +13,8 @@ command line NDI video monitor
 .RB [ \-\-noaudio ]
 .RB [ \-\-ipaddr
 .IR ip-address ]
+.RB [ \-\-wait\-image
+.IR file.bmp ]
 .I device-name
 .RI [ stream-name ]
 .SH DESCRIPTION
@@ -50,6 +52,13 @@ sources directly as well as through mDNS. Use this when multicast does not
 reach the source (e.g. it is lost between Wi-Fi and wired Ethernet), or to
 pick one network interface of a source that has several. Without a device
 name, lists the sources at that address.
+.PP
+.BI \-\-wait\-image " file.bmp"
+Show this image whenever the source has sent no video for 3 seconds, so an
+idle screen is not mistaken for one that is switched off. It is scaled to
+the window, keeping its aspect ratio, and replaced by the video as soon as
+the video returns. Only BMP files are accepted; anything else ends the
+program with an error at start-up.
 .SH KEYS
 .PP
 .BR F11 ", " F
@@ -83,6 +92,11 @@ Show the first stream of device STUDIO fullscreen.
 .PP
 .B ndiclient \-\-noaudio STUDIO
 Show the first stream of device STUDIO without its audio.
+.PP
+.B ndiclient \-\-fullscreen \-\-wait\-image standby.bmp STUDIO
+Show the first stream of device STUDIO fullscreen, and
+.B standby.bmp
+while it sends no video.
 .PP
 .B ndiclient \-\-ipaddr 192.0.2.20 STUDIO \(dqOBS PGM\(dq
 Show the source

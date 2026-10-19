@@ -1,11 +1,11 @@
 # ndiclient
 
 Command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
-`ndiclient [-d] [--fullscreen] [--noaudio] [--ipaddr <ip>] <device-name> [stream-name]`
+`ndiclient [-d] [--fullscreen] [--noaudio] [--ipaddr <ip>] [--wait-image <file.bmp>] <device-name> [stream-name]`
 uses NDI discovery to find the source named `DEVICE (Stream)` (or the first
-stream on that device), shows its video in a desktop window or fullscreen and
-plays its audio. `ndiclient [--ipaddr <ip>]` without names lists the sources
-it discovers.
+stream on that device), shows its video in a desktop window or fullscreen
+(or an optional image while no video arrives) and plays its audio.
+`ndiclient [--ipaddr <ip>]` without names lists the sources it discovers.
 
 ## Coding standard
 
@@ -41,6 +41,7 @@ target/release/ndiclient --noaudio STUDIO
 target/release/ndiclient -d STUDIO
 target/release/ndiclient --ipaddr 192.0.2.20 STUDIO "OBS PGM"
 target/release/ndiclient --ipaddr 192.0.2.20
+target/release/ndiclient --wait-image standby.bmp STUDIO
 packaging/build_deb.sh
 ```
 
@@ -62,7 +63,15 @@ packaging/build_deb.sh
   for listing. For multicast lost between Wi-Fi and wired Ethernet, and to
   pick one interface of a multi-homed source. Without a device name it
   lists the sources at that address. Options may come in any order, each
-  at most once; `--ipaddr` takes the next argument as its value.
+  at most once; `--ipaddr` and `--wait-image` take the next argument as
+  their value.
+- `--wait-image <file.bmp>` shows that image whenever "Waiting for
+  video..." is printed (also at start-up, after 3 s without a first
+  frame), letterboxed to the window like the video, until the next new
+  frame. BMP only (`SDL_LoadBMP`, so no SDL_image dependency); the file is
+  read before discovery, and a missing or non-BMP file exits 1 at once.
+  The image's texture exists only while it is shown. Not valid without a
+  device name.
 - Kiosk mode: in fullscreen the mouse cursor is hidden. F11 or F switches
   between windowed and fullscreen at runtime (held keys don't repeat it).
 - Close the window or press Escape to quit (also in fullscreen).
@@ -163,8 +172,8 @@ packaging/build_deb.sh
 
 ```
 src/main.rs          argument parsing (Invocation, Command, ViewOptions:
-                     -d, --fullscreen, --noaudio, --ipaddr), wiring, source
-                     listing, main capture/display loop
+                     -d, --fullscreen, --noaudio, --ipaddr, --wait-image),
+                     wiring, source listing, main capture/display loop
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
 src/sound.rs         Sound / AudioFormat: device-agnostic planar audio view,
                      interleaving, channel narrowing
@@ -179,9 +188,10 @@ src/speaker.rs       Speaker: SDL audio output fed from the jitter buffer
 src/i420.rs          I420Frame: repacks UYVY into planar I420 for the GPU
 src/display.rs       VideoWindow / WindowMode: SDL2 window or fullscreen,
                      key handling, cursor hiding, streaming texture,
-                     letterboxing
+                     wait image, letterboxing
 src/frame_rate.rs    FrameRateMeter: periodic fps reporting
 src/stall.rs         StallDetector: "waiting for video" once per stall
+src/wait_image.rs    WaitImage: the BMP shown while no video arrives
 src/ndi/ffi.rs       raw C declarations for the NDI SDK
 src/ndi/runtime.rs   NdiRuntime: RAII for NDIlib_initialize/NDIlib_destroy
 src/ndi/query.rs     SourceQuery: device + optional stream name, matching rules
@@ -327,16 +337,18 @@ Key decisions:
   fullscreen. A toggle redraws the last picture at once, because a stalled
   source may not send another frame for a while.
 - **Aspect ratio.** `Canvas::set_logical_size` letterboxes the picture inside
-  the resizable window. `picture_aspect_ratio` from NDI is ignored (square
-  pixels assumed).
+  the resizable window. The wait image sets it to its own size while shown
+  and hiding it restores the video's. `picture_aspect_ratio` from NDI is
+  ignored (square pixels assumed).
 
 ## Testing
 
 - `cargo test`: unit tests for argument parsing, source query matching, the
   frame-rate meter, the stall detector, the UYVY→I420 repacking, window mode
   toggling, key handling, audio interleaving and channel narrowing, the
-  frame-sync padding remover, the jitter buffer and the discovery scope
-  (112 tests).
+  frame-sync padding remover, the jitter buffer, the discovery scope and
+  wait image loading (123 tests; the wait image tests write scratch BMPs
+  to the temp directory).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
   `libndi.so`. This works only because unit tests never call NDI functions.
@@ -491,6 +503,12 @@ Key decisions:
     1000 ms apart, 1 kHz, amplitude 0.25. Stopping the sender printed
     "Waiting for video..." and an underrun, restarting it resumed 30 fps;
     SIGTERM exit 0.
+- Wait image (2026-10-19): local test pattern with a 640x360 BMP,
+  windowed: stopping the sender showed the image after 3 s (screenshot),
+  restarting it brought the colour bars back, a second stop showed the
+  image again. Fullscreen with a 400x300 BMP: scaled up and pillarboxed.
+  A non-BMP file and a missing file each exit 1 before discovery, and
+  `--wait-image` without a device name prints the usage.
 - Not yet tested: a 60 fps source over wired Ethernet, choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.

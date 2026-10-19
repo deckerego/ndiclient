@@ -46,6 +46,16 @@ In fullscreen the mouse cursor is hidden, so the screen shows only the video
 (kiosk mode). Press F11 or F to switch between window and fullscreen while
 the video plays. Close the window or press Escape to quit.
 
+An empty black screen is easily mistaken for a display that is switched off.
+Add `--wait-image` with a BMP file to show that image instead whenever the
+source sends no video for 3 seconds. It is scaled to the window, keeping its
+aspect ratio, and gives way to the video as soon as the video returns. Other
+image formats are rejected at start-up; convert them to BMP first (for
+example `ffmpeg -i standby.png standby.bmp`):
+```sh
+target/release/ndiclient --fullscreen --wait-image standby.bmp STUDIO PGM
+```
+
 If mDNS discovery doesn't find the source, for example because multicast gets
 lost between Wi-Fi and wired Ethernet, give the IP address of the source with
 `--ipaddr`. That address is then asked for its sources directly, and only

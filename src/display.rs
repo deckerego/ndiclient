@@ -1,6 +1,7 @@
 //! An SDL2 desktop window that shows a stream of pictures, letterboxed.
 //! F11 or F switches between windowed and fullscreen; fullscreen hides the
-//! mouse cursor so the screen can serve as a kiosk display.
+//! mouse cursor so the screen can serve as a kiosk display. While the
+//! source sends no video, an optional wait image can cover the picture.
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -12,6 +13,7 @@ use sdl2::{EventPump, Sdl};
 
 use crate::i420::I420Frame;
 use crate::picture::{Dimensions, Picture, PixelLayout};
+use crate::wait_image::WaitImage;
 
 const INITIAL_WINDOW_SIZE: Dimensions = Dimensions {
     width: 1280,
@@ -106,10 +108,17 @@ pub struct VideoWindow {
     mode: WindowMode,
     stream_texture: Option<StreamTexture>,
     i420_frame: I420Frame,
+    wait_image: Option<WaitImage>,
+    wait_texture: Option<Texture>,
 }
 
 impl VideoWindow {
-    pub fn open(sdl: &Sdl, title: &str, mode: WindowMode) -> Result<Self, String> {
+    pub fn open(
+        sdl: &Sdl,
+        title: &str,
+        mode: WindowMode,
+        wait_image: Option<WaitImage>,
+    ) -> Result<Self, String> {
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "linear");
         let video = sdl.video()?;
         // Resizable also in fullscreen, so the window can be resized after toggling out.
@@ -134,6 +143,8 @@ impl VideoWindow {
             mode: WindowMode::Windowed,
             stream_texture: None,
             i420_frame: I420Frame::default(),
+            wait_image,
+            wait_texture: None,
         };
         video_window.enter(mode)?;
         // Wayland only maps a window once something is presented, so show
@@ -175,6 +186,7 @@ impl VideoWindow {
     }
 
     pub fn show(&mut self, picture: &Picture) -> Result<(), String> {
+        self.hide_wait_image()?;
         match picture.layout {
             PixelLayout::Uyvy => self.upload_as_i420(picture)?,
             PixelLayout::Bgra => self.upload_bgra(picture)?,
@@ -206,14 +218,57 @@ impl VideoWindow {
             .map_err(|error| error.to_string())
     }
 
-    /// Draws the latest picture, or black before the first one arrives.
+    /// Draws the wait image if it is shown, else the latest picture, or
+    /// black before the first one arrives.
     pub fn present(&mut self) -> Result<(), String> {
         self.canvas.clear();
-        if let Some(current) = &self.stream_texture {
-            self.canvas.copy(&current.texture, None, None)?;
+        let stream = self.stream_texture.as_ref().map(|current| &current.texture);
+        if let Some(texture) = self.wait_texture.as_ref().or(stream) {
+            self.canvas.copy(texture, None, None)?;
         }
         self.canvas.present();
         Ok(())
+    }
+
+    /// Covers the video with the wait image, if one was given, until the
+    /// next picture arrives. The image is only on the GPU while it is shown.
+    pub fn show_wait_image(&mut self) -> Result<(), String> {
+        let Some(image) = &self.wait_image else {
+            return Ok(());
+        };
+        if self.wait_texture.is_some() {
+            return Ok(());
+        }
+        let dimensions = image.dimensions();
+        let texture = self
+            .texture_creator
+            .create_texture_from_surface(image.surface())
+            .map_err(|error| error.to_string())?;
+        self.wait_texture = Some(texture);
+        self.letterbox(dimensions)
+    }
+
+    fn hide_wait_image(&mut self) -> Result<(), String> {
+        let Some(texture) = self.wait_texture.take() else {
+            return Ok(());
+        };
+        // SAFETY: The renderer that owns the texture is still alive.
+        unsafe { texture.destroy() };
+        match self
+            .stream_texture
+            .as_ref()
+            .map(|current| current.dimensions)
+        {
+            Some(dimensions) => self.letterbox(dimensions),
+            None => Ok(()),
+        }
+    }
+
+    /// Logical size makes SDL scale what is drawn to the window while keeping its aspect ratio.
+    fn letterbox(&mut self, dimensions: Dimensions) -> Result<(), String> {
+        self.canvas
+            .set_logical_size(dimensions.width, dimensions.height)
+            .map_err(|error| error.to_string())
     }
 
     /// Recreates the texture whenever the source changes resolution or format.
@@ -239,10 +294,7 @@ impl VideoWindow {
             format,
             dimensions,
         });
-        // Logical size makes SDL scale the picture to the window while keeping its aspect ratio.
-        self.canvas
-            .set_logical_size(width, height)
-            .map_err(|error| error.to_string())
+        self.letterbox(dimensions)
     }
 
     fn replace_texture(&mut self, replacement: StreamTexture) {
