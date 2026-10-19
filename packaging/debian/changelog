@@ -1,6 +1,16 @@
 # Entries are added when a GitHub release is published: the APT repository
 # workflow makes one from the release notes (see packaging/stamp_release.sh)
 # and commits it to main.
+ndiclient (0.5.0-1) unstable; urgency=medium
+
+  * What's Changed
+  * Show a wait image while the source sends no video by @deckerego in
+    https://github.com/deckerego/ndiclient/pull/27
+  * **Full Changelog**:
+    https://github.com/deckerego/ndiclient/compare/0.4.0...0.5.0
+
+ -- John Ellis <john@deckerego.net>  Mon, 19 Oct 2026 16:56:55 +0000
+
 ndiclient (0.4.0-1) unstable; urgency=medium
 
   * What's Changed
