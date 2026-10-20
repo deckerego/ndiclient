@@ -1,6 +1,18 @@
 # Entries are added when a GitHub release is published: the APT repository
 # workflow makes one from the release notes (see packaging/stamp_release.sh)
 # and commits it to main.
+ndiclient (0.5.1-1) unstable; urgency=medium
+
+  * What's Changed
+  * Example scripts for kiosk mode by @deckerego in
+    https://github.com/deckerego/ndiclient/pull/28
+  * Publish deb822 .sources files for the APT repository by @deckerego in
+    https://github.com/deckerego/ndiclient/pull/29
+  * **Full Changelog**:
+    https://github.com/deckerego/ndiclient/compare/0.5.0...0.5.1
+
+ -- John Ellis <john@deckerego.net>  Tue, 20 Oct 2026 21:28:39 +0000
+
 ndiclient (0.5.0-1) unstable; urgency=medium
 
   * What's Changed
