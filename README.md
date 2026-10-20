@@ -82,14 +82,23 @@ Binary packages are available for the Raspberry Pi OS "trixie" and "bookworm"
 They are published on an APT source hosted by GitHub Pages for this repo,
 so there are a few hoops to jump through in order to install through `apt`.
 
-To add the repo for the release you are running and install `ndiclient`:
+Each distro has a ready-made APT source file in the
+[deb822 format](https://wiki.debian.org/SourcesList) with the repository's
+signing key inside it. To add the one for the release you are running and
+install `ndiclient`:
 ```sh
-sudo curl -fsSLo /usr/share/keyrings/ndiclient-archive-keyring.gpg \
-    https://deckerego.github.io/ndiclient/ndiclient-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/ndiclient-archive-keyring.gpg] https://deckerego.github.io/ndiclient $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
-    | sudo tee /etc/apt/sources.list.d/ndiclient.list
+sudo curl -fsSLo /etc/apt/sources.list.d/ndiclient.sources \
+    "https://deckerego.github.io/ndiclient/$(. /etc/os-release && echo "$VERSION_CODENAME").sources"
 sudo apt update
 sudo apt install ndiclient
+```
+
+If you added the repo earlier as a one-line `ndiclient.list`, remove it and
+its keyring first, or `apt update` will complain about conflicting
+`Signed-By` values:
+```sh
+sudo rm /etc/apt/sources.list.d/ndiclient.list \
+    /usr/share/keyrings/ndiclient-archive-keyring.gpg
 ```
 
 Later releases then arrive with `sudo apt upgrade`.

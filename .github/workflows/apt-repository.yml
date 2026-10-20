@@ -129,6 +129,7 @@ jobs:
       PACKAGE_DIR: packages
       ARTIFACT_PREFIX: *artifact_prefix
       APT_REPO_DIR: apt-repo
+      APT_REPO_URL: https://deckerego.github.io/ndiclient
       PAGES_BRANCH: gh-pages
     steps:
       - name: Install publishing tools
@@ -183,6 +184,18 @@ jobs:
           echo "$SIGNING_PUBLIC_KEY" | gpg --dearmor > "$RUNNER_TEMP/public-key.gpg"
           for release in "$APT_REPO_DIR"/dists/*/InRelease; do
             gpgv --keyring "$RUNNER_TEMP/public-key.gpg" "$release"
+          done
+
+      # Users trust the key inline in the .sources file, so it must verify
+      # its own distribution's signature too.
+      - name: Verify the signature with each sources file's key
+        run: |
+          for sources in "$APT_REPO_DIR"/*.sources; do
+            distribution="$(basename "$sources" .sources)"
+            sed -n '/^Signed-By:/,$ s/^ //p' "$sources" | sed 's/^\.$//' \
+              | gpg --dearmor > "$RUNNER_TEMP/$distribution-key.gpg"
+            gpgv --keyring "$RUNNER_TEMP/$distribution-key.gpg" \
+              "$APT_REPO_DIR/dists/$distribution/InRelease"
           done
 
       # .nojekyll makes Pages serve the files as they are.
