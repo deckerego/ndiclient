@@ -2,7 +2,8 @@
 # Adds .deb packages to one distribution of a static APT repository and
 # re-signs that distribution's metadata.
 #
-# Usage: APT_SIGNING_KEY=<key id> packaging/update_apt_repo.sh <repo-dir> <distribution> <deb>...
+# Usage: APT_SIGNING_KEY=<key id> APT_REPO_URL=<url> \
+#        packaging/update_apt_repo.sh <repo-dir> <distribution> <deb>...
 #
 # Each distribution (the Debian release the packages were built on, e.g.
 # trixie or bookworm) has one component and its own pool directory, so its
@@ -11,6 +12,10 @@
 # there with different content is refused: APT caches packages by name and
 # version, so a rebuilt version needs a new changelog entry. Needs apt-utils
 # (for apt-ftparchive) and gnupg with the signing key in its keyring.
+#
+# It also writes <distribution>.sources to the repository root: a deb822
+# APT source for that distribution, served at APT_REPO_URL, with the public
+# key inline, so users install it with one download to sources.list.d.
 set -eu
 
 COMPONENT=main
@@ -18,6 +23,7 @@ ORIGIN=ndiclient
 PACKAGE_SUBDIR=$COMPONENT/n/ndiclient
 KEYRING_NAME=ndiclient-archive-keyring
 SIGNING_KEY="${APT_SIGNING_KEY:?APT_SIGNING_KEY must name the signing key}"
+REPO_URL="${APT_REPO_URL:?APT_REPO_URL must be the URL the repository is served at}"
 # Until bookworm was added, trixie was the only distribution and its pool was
 # pool/main. adopt_legacy_pool moves it to pool/trixie/main.
 LEGACY_DISTRIBUTION=trixie
@@ -35,6 +41,7 @@ main() {
     write_release
     sign_release
     export_public_key
+    write_sources_file
 }
 
 adopt_legacy_pool() {
@@ -103,6 +110,27 @@ sign_release() {
 export_public_key() {
     gpg --batch --yes --export --output "$REPO_DIR/$KEYRING_NAME.gpg" "$SIGNING_KEY"
     gpg --batch --yes --armor --export --output "$REPO_DIR/$KEYRING_NAME.asc" "$SIGNING_KEY"
+}
+
+# Architectures lists only what the pool has, so APT doesn't warn that the
+# repository lacks a foreign architecture (armhf on 64-bit Raspberry Pi OS).
+write_sources_file() {
+    architectures="$(pool_architectures | tr '\n' ' ')"
+    {
+        echo "Types: deb"
+        echo "URIs: $REPO_URL"
+        echo "Suites: $DISTRIBUTION"
+        echo "Components: $COMPONENT"
+        echo "Architectures: ${architectures% }"
+        echo "Signed-By:"
+        inline_public_key
+    } > "$REPO_DIR/$DISTRIBUTION.sources"
+}
+
+# deb822 continuation lines start with a space, and a blank line inside a
+# field is written as a lone dot.
+inline_public_key() {
+    gpg --batch --armor --export "$SIGNING_KEY" | sed -e 's/^$/./' -e 's/^/ /'
 }
 
 main "$@"

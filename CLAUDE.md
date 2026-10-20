@@ -161,7 +161,16 @@ packaging/build_deb.sh
   only those (before bookworm, trixie's were in `pool/main/`; the script
   moves them on its next trixie run). It keeps old packages and refuses to replace a `.deb` with different content, so a
   rebuild of one version needs a new changelog entry. It needs `apt-utils`
-  and `gnupg`, and the key id in `APT_SIGNING_KEY`.
+  and `gnupg`, the key id in `APT_SIGNING_KEY` and the repository's URL in
+  `APT_REPO_URL`. It also writes `<distribution>.sources` to the
+  repository root: a deb822 APT source (`Types`, `URIs`, `Suites`,
+  `Components`, `Architectures` from the pool, so a foreign armhf
+  architecture causes no warning) with the public key inline in
+  `Signed-By`, so users install the repository with one `curl` to
+  `/etc/apt/sources.list.d/ndiclient.sources`. `publish` checks each
+  file's inline key against its distribution's `InRelease`. The keyring
+  files (`ndiclient-archive-keyring.gpg`/`.asc`) are still exported for
+  installs from the old one-line `ndiclient.list`.
 - The `sdl2` crate is used with the `unsafe_textures` feature so a texture can
   live in the same struct as its `TextureCreator` (no self-referential lifetimes).
 - NDI bindings are hand-written (`src/ndi/ffi.rs`), not bindgen, to avoid a
