@@ -93,14 +93,6 @@ sudo apt update
 sudo apt install ndiclient
 ```
 
-If you added the repo earlier as a one-line `ndiclient.list`, remove it and
-its keyring first, or `apt update` will complain about conflicting
-`Signed-By` values:
-```sh
-sudo rm /etc/apt/sources.list.d/ndiclient.list \
-    /usr/share/keyrings/ndiclient-archive-keyring.gpg
-```
-
 Later releases then arrive with `sudo apt upgrade`.
 
 
