@@ -1,19 +1,19 @@
 Architectures: arm64
 Codename: bookworm
 Components: main
-Date: Mon, 19 Oct 2026 16:58:31 +0000
+Date: Tue, 20 Oct 2026 21:30:07 +0000
 Label: ndiclient
 Origin: ndiclient
 Suite: bookworm
 MD5Sum:
- 0fde96389a211c6a7619b868dd2642d2             3471 main/binary-arm64/Packages
- a80c419aa37d2793f6054e8d453795c4             1142 main/binary-arm64/Packages.gz
+ 2e76b3ddd22b16f44b4af9142217a4cb             4628 main/binary-arm64/Packages
+ bd554e25c1583a49f9b7d78620294cab             1333 main/binary-arm64/Packages.gz
 SHA1:
- 9349fd7a73c9f83b92c5eafc0a0426a9cf7fe388             3471 main/binary-arm64/Packages
- ebab2004e2fc20bec3d7c3df6adb4799e06520bb             1142 main/binary-arm64/Packages.gz
+ c06dec128d19b67994f86c6fe39c0d9f6d700e3f             4628 main/binary-arm64/Packages
+ ed0645dab6b74dcfc1cb30769897c5e413eb4deb             1333 main/binary-arm64/Packages.gz
 SHA256:
- d49f5b1ea9a0d51b1392b6cabdb259be64b3e9914ab9107b44dbbc103ba5c930             3471 main/binary-arm64/Packages
- 73b80788be69c715aeeda9b986116fe7fb65693e1ba79f9a220dff901b253e59             1142 main/binary-arm64/Packages.gz
+ d4cee9d193dcdc986bf9a14992996276b56c9e13f95dcecb3ff8f189f65d6466             4628 main/binary-arm64/Packages
+ 1d6172a8e8a01bdd44128480ae10bd755364dcc6c815d753d2d462678f2189a9             1333 main/binary-arm64/Packages.gz
 SHA512:
- ee07592ed9f4b5fc15500a2a3afa01277587aaa00838c2b3884382cad38df4d5d8be78a7cb5bba5b8beeb69197b611e507210864488d580d454888caea7e3438             3471 main/binary-arm64/Packages
- 48dc1ea08181c53c5b86abf3c5e48b71ad11b9f4ec27ef668ccd4b85d4dec4ef7cd7e80bde2bd34109f5bea6f04af373bddfaf540ebd771f6d241ca294a36fc4             1142 main/binary-arm64/Packages.gz
+ 2e1b89512e405ddbd438f5fd725dd9b649ea61cb09073f102200ce8ac6a5535803492bf74c3b9442573db8b08888597d0cf3682c7b6e95348243ca5443b831e8             4628 main/binary-arm64/Packages
+ 34f40ea4a619c9b082018b7c7adcf4745efb3a142c759fd17e8e8a3883ad49679757755ff6ec112ae0d5ff7e510ae23690a6bb735b119b9bf15f5966e8ce4056             1333 main/binary-arm64/Packages.gz
