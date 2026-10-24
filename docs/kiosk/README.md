@@ -50,9 +50,11 @@ their current status you can send the command `scan` over HDMI:
 echo scan | cec-client -s -d 1
 ```
 
-Turning on or off the screen is fairly straightforward
-(but pipes a lot of info to stdout):
+Turning on or off the screen is fairly straightforward.
+Because some screens don't do a good job of finding which
+HDMI port is "active," I explicitly indicate the HDMI port number
+(below example is with HDMI 1):
 ```
-echo "on 0" | cec-client -s
-echo "standby 0" | cec-client -s
+echo "on 0" | cec-client -p 1 -s -d 1
+echo "standby 0" | cec-client -p 1 -s -d 1
 ```
