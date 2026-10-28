@@ -6,6 +6,10 @@ so this is my attempt at bootstrapping one.
 
 NDI® is a registered trademark of Vizrt NDI AB. Learn more at [ndi.video](https://ndi.video/).
 
+[![Unit tests](https://github.com/deckerego/ndiclient/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/deckerego/ndiclient/actions/workflows/unit-tests.yml)
+[![APT repository](https://github.com/deckerego/ndiclient/actions/workflows/apt-repository.yml/badge.svg)](https://github.com/deckerego/ndiclient/actions/workflows/apt-repository.yml)
+[![AI Autonomy Level](https://img.shields.io/badge/AI%20Autonomy-Level%203%20of%205%20(Semi--Autonomous%20Engineer)-blue)](https://blog.jread.com/posts/ai-levels-of-autonomy-in-software-engineering/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](/LICENSE)
 
 ## Limitations
 
