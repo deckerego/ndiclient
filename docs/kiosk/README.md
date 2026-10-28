@@ -5,12 +5,19 @@ the only running app. This directory has a few scripts that
 helps run the app on startup and keep it running.
 
 
-## show_obs.sh
+## show_ndi.sh
 
-This is an example of how you might connect to an OBS source on a remote
-device, restarting in case of failure. Tweak as needed; this can
-be saved in `/home/pi` or whatever directory you have for an
-autologin user.
+An example of how you might connect to a source on a remote
+device, restarting in case of failure. Useful when you want to
+launch `ndiclient` on startup, such as with `ndiclient.desktop`.
+
+Configuration is loaded from the `config` file, 
+which can be a symlink to yet another config if you need to 
+switch back and forth between devices or sources.
+For example:
+```
+ln -f -s /home/pi/obs.conf /home/pi/config; killall -q ndiclient
+```
 
 
 ## ndiclient.desktop
