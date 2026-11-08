@@ -65,3 +65,11 @@ HDMI port is "active," I explicitly indicate the HDMI port number
 echo "on 0" | cec-client -p 1 -s -d 1
 echo "standby 0" | cec-client -p 1 -s -d 1
 ```
+
+It is fairly common to have a repurposed screen or television
+that responds to "standby" commands but ignores "on" commands.
+[check your screen's settings](https://support.pulse-eight.com/support/solutions/articles/30000053064-cec-adapter-tv-can-be-turned-off-but-not-on)
+and look for Simplink/Anynet+/EasyLink/CEC/etc in the set's
+advanced settings. Often CEC is enabled but you must separately enable 
+the ability for HDMI commands to turn the power on - it seems that
+most screens disable this by default.
