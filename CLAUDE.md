@@ -60,9 +60,11 @@ packaging/build_deb.sh
 - `--ipaddr <ip>` (IPv4 or IPv6, no host names) asks that address for its
   sources directly (NDI `p_extra_ips`, unicast) besides mDNS, and only
   sources whose NDI URL address is that IP are used, for connecting and
-  for listing. For multicast lost between Wi-Fi and wired Ethernet, and to
-  pick one interface of a multi-homed source. Without a device name it
-  lists the sources at that address. Options may come in any order, each
+  for listing. The connection stays at that address: if it breaks, the
+  receiver waits for it to come back rather than move to another
+  interface of the source. For multicast lost between Wi-Fi and wired
+  Ethernet, and to pick one interface of a multi-homed source. Without a
+  device name it lists the sources at that address. Options may come in any order, each
   at most once; `--ipaddr` and `--wait-image` take the next argument as
   their value.
 - `--wait-image <file.bmp>` shows that image whenever "Waiting for
@@ -231,9 +233,18 @@ Key decisions:
   `--ipaddr`) queries that IP by unicast and makes the finder drop every
   source whose URL address (`<ip>:<port>`) is another IP, so `find_source`,
   listing and the error's source list only see that interface. The
-  receiver connects to the chosen descriptor's URL, so it uses that
-  interface too. Earlier PoC versions required an IP; it became optional
-  when discovery by name was added.
+  receiver uses that interface too (`Addressing::ByUrl`): its source has
+  no name, only the URL. NDI ignores the URL whenever a name is given (as
+  the SDK header says, and a probe confirmed: a name with an unreachable
+  URL still connected) and resolves the name again on reconnect, so a
+  receiver given both fell over to the source's Wi-Fi interface when its
+  Ethernet link was pulled, in one of two instances. Without `--ipaddr`
+  (`Addressing::ByName`) the name is kept, so NDI follows the source to
+  any interface or new address. A pinned receiver reconnects when the
+  sender returns on the same port (a sender that is alone on its host
+  restarted on the same one), but not if it comes back on another.
+  Earlier PoC versions required an IP; it became optional when discovery
+  by name was added.
 - **Black window on open.** Wayland maps a window only after its first
   present, so `VideoWindow::open` presents a cleared (black) frame.
 - **Pixel format.** The receiver asks for `UYVY_BGRA`, because NDI decodes to
@@ -356,7 +367,7 @@ Key decisions:
   frame-rate meter, the stall detector, the UYVY→I420 repacking, window mode
   toggling, key handling, audio interleaving and channel narrowing, the
   frame-sync padding remover, the jitter buffer, the discovery scope and
-  wait image loading (123 tests; the wait image tests write scratch BMPs
+  wait image loading (125 tests; the wait image tests write scratch BMPs
   to the temp directory).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
@@ -518,6 +529,18 @@ Key decisions:
   image again. Fullscreen with a 400x300 BMP: scaled up and pillarboxed.
   A non-BMP file and a missing file each exit 1 before discovery, and
   `--wait-image` without a device name prints the usage.
+- `--ipaddr` keeps to its interface (2026-11-16): the user saw one of
+  two `--ipaddr` instances, pointed at a source's Ethernet address, carry
+  on over the source's Wi-Fi after its Ethernet cable was pulled. A
+  receiver created with a source's name and an unreachable documentation
+  URL still played; with no name and that URL it got nothing, with no name
+  and the real URL it played. Fixed by leaving the name out under
+  `--ipaddr`. Afterwards the DistroAV source played at 30 fps through its
+  Ethernet address (TCP peers only that address), by name without
+  `--ipaddr` as before, and the local test pattern pinned to one address
+  printed "Waiting for video..." when the sender stopped and resumed at
+  30 fps when it restarted (same port). The cable pull itself was not
+  repeated by the developer (no sudo for a firewall rule to simulate it).
 - Not yet tested: a 60 fps source over wired Ethernet, choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -551,7 +574,9 @@ Key decisions:
   radio and causes pauses of up to ~12 s. Use wired Ethernet.
 - Discovery relies on mDNS (or an NDI discovery server). Where multicast is
   blocked, `--ipaddr` queries the source's host directly. It takes one IP
-  address, not a host name or a list.
+  address, not a host name or a list. A connection made through it doesn't
+  find the source again if the sender restarts on another port; run
+  ndiclient again.
 - Stream name matching is exact and case-sensitive; no partial or wildcard
   matching.
 - NDI EULA clause 1.b.iii excludes products running on "embedded devices"

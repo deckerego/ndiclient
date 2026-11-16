@@ -6,12 +6,13 @@ use std::time::{Duration, Instant};
 use super::ffi;
 use super::query::SourceQuery;
 use super::runtime::NdiRuntime;
-use super::scope::DiscoveryScope;
+use super::scope::{Addressing, DiscoveryScope};
 
 /// An NDI source copied out of the finder, so it outlives the finder's buffers.
 pub struct SourceDescriptor {
     name: CString,
     url_address: CString,
+    addressing: Addressing,
 }
 
 impl SourceDescriptor {
@@ -20,9 +21,14 @@ impl SourceDescriptor {
     }
 
     /// Borrowed view for the C API; only valid while `self` is alive.
+    /// Without a name, NDI connects to the URL address alone.
     pub(super) fn as_raw(&self) -> ffi::Source {
+        let ndi_name = match self.addressing {
+            Addressing::ByName => self.name.as_ptr(),
+            Addressing::ByUrl => ptr::null(),
+        };
         ffi::Source {
-            ndi_name: self.name.as_ptr(),
+            ndi_name,
             url_address: self.url_address.as_ptr(),
         }
     }
@@ -31,7 +37,7 @@ impl SourceDescriptor {
     ///
     /// # Safety
     /// Non-null pointers in `raw` must be valid NUL-terminated strings.
-    unsafe fn copy_from(raw: &ffi::Source) -> Option<Self> {
+    unsafe fn copy_from(raw: &ffi::Source, addressing: Addressing) -> Option<Self> {
         if raw.ndi_name.is_null() || raw.url_address.is_null() {
             return None;
         }
@@ -45,6 +51,7 @@ impl SourceDescriptor {
         Some(Self {
             name: name.to_owned(),
             url_address: url_address.to_owned(),
+            addressing,
         })
     }
 
@@ -136,9 +143,10 @@ impl<'runtime> SourceFinder<'runtime> {
         }
         // SAFETY: See above; entries are copied before the buffer can change.
         let raw_sources = unsafe { std::slice::from_raw_parts(raw_sources, count as usize) };
+        let addressing = self.scope.addressing();
         raw_sources
             .iter()
-            .filter_map(|raw| unsafe { SourceDescriptor::copy_from(raw) })
+            .filter_map(|raw| unsafe { SourceDescriptor::copy_from(raw, addressing) })
             .filter(|source| source.is_within(self.scope))
             .collect()
     }

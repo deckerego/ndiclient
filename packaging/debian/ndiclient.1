@@ -48,10 +48,11 @@ Do not play the source's audio; No audio device is opened.
 .PP
 .BI \-\-ipaddr " ip-address"
 Only use sources at this IPv4 or IPv6 address, and ask that address for its
-sources directly as well as through mDNS. Use this when multicast does not
-reach the source (e.g. it is lost between Wi-Fi and wired Ethernet), or to
-pick one network interface of a source that has several. Without a device
-name, lists the sources at that address.
+sources directly. Use this when mDNS does not work on your network, or to
+pick one network interface for a source that has several. The connection
+stays at that address: if it breaks, ndiclient waits for it to return to
+that open port rather open a new port or permit discovery on anothe interface.
+Without a device name, lists the sources at that address.
 .PP
 .BI \-\-wait\-image " file.bmp"
 Show this image whenever the source has sent no video for 3 seconds, so an
