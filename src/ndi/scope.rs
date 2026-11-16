@@ -24,6 +24,15 @@ impl DiscoveryScope {
         }
     }
 
+    /// Within the network, NDI may reach a source however it can; at one
+    /// address, only through the interface it was discovered at.
+    pub(super) fn addressing(self) -> Addressing {
+        match self {
+            Self::Network => Addressing::ByName,
+            Self::Address(_) => Addressing::ByUrl,
+        }
+    }
+
     /// NDI URL addresses have the form `<ip>:<port>`.
     pub(super) fn includes(self, url_address: &str) -> bool {
         match self {
@@ -41,6 +50,19 @@ impl DiscoveryScope {
             Self::Address(address) => format!(" at {address}"),
         }
     }
+}
+
+/// How a receiver reaches its source. NDI ignores a source's URL address
+/// whenever its name is given, and resolves the name again on every
+/// reconnect, possibly through another interface of the source's host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Addressing {
+    /// Follows the source to any interface or new address.
+    ByName,
+    /// Stays at the URL address the source was discovered at, so the
+    /// connection fails rather than move to another interface. A sender
+    /// that restarts on another port is not found again.
+    ByUrl,
 }
 
 #[cfg(test)]
@@ -77,6 +99,16 @@ mod tests {
     fn ipv6_address_includes_url_at_that_address() {
         let scope = DiscoveryScope::Address("2001:db8::20".parse().unwrap());
         assert!(scope.includes("[2001:db8::20]:5961"));
+    }
+
+    #[test]
+    fn network_reaches_source_by_name() {
+        assert_eq!(DiscoveryScope::Network.addressing(), Addressing::ByName);
+    }
+
+    #[test]
+    fn address_reaches_source_only_at_its_url() {
+        assert_eq!(scope().addressing(), Addressing::ByUrl);
     }
 
     #[test]

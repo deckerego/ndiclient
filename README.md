@@ -64,7 +64,8 @@ If mDNS discovery doesn't find the source, for example because multicast gets
 lost between Wi-Fi and wired Ethernet, give the IP address of the source with
 `--ipaddr`. That address is then asked for its sources directly, and only
 sources at that address are used, so it also picks the network interface of a
-source that has several:
+source that has several. The connection stays on that interface: if it
+breaks, ndiclient waits for it to come back instead of switching to another:
 ```sh
 target/release/ndiclient --ipaddr 192.0.2.20 STUDIO "OBS PGM"
 ```
