@@ -2,7 +2,8 @@
 //! optionally stream name), shows its video in a desktop window or
 //! fullscreen and plays its audio. Without arguments it lists the NDI
 //! sources it discovers. `--ipaddr` restricts both to one IP address.
-//! `--wait-image` shows a BMP image while the source sends no video.
+//! `--wait-image` shows a BMP image while the source sends no video, and
+//! `--retry-wait` connects anew when no video comes for too long.
 
 mod audio_pump;
 mod display;
@@ -17,9 +18,8 @@ mod speaker;
 mod stall;
 mod wait_image;
 
-use std::collections::HashSet;
-use std::net::IpAddr;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -27,9 +27,12 @@ use std::time::Duration;
 use display::{VideoWindow, WindowMode, WindowStatus};
 use frame_rate::FrameRateMeter;
 use jitter_buffer::{AudioLatency, JitterBuffer};
-use ndi::{DiscoveryScope, FrameStamp, FrameSync, NdiRuntime, Receiver, SourceFinder, SourceQuery};
+use ndi::{
+    DiscoveryScope, FrameStamp, FrameSync, NdiRuntime, Receiver, SourceDescriptor, SourceFinder,
+    SourceQuery,
+};
 use speaker::Speaker;
-use stall::StallDetector;
+use stall::{RetryPolicy, StallDetector};
 use wait_image::WaitImage;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -51,10 +54,13 @@ const NO_AUDIO_OPTION: &str = "--noaudio";
 const DEBUG_OPTION: &str = "-d";
 const IP_ADDRESS_OPTION: &str = "--ipaddr";
 const WAIT_IMAGE_OPTION: &str = "--wait-image";
+const RETRY_WAIT_OPTION: &str = "--retry-wait";
+/// Options that take the argument after them as their value.
+const VALUE_OPTIONS: [&str; 3] = [IP_ADDRESS_OPTION, WAIT_IMAGE_OPTION, RETRY_WAIT_OPTION];
 const OPTION_PREFIX: &str = "-";
 const USAGE: &str =
     "usage: ndiclient [-d] [--fullscreen] [--noaudio] [--ipaddr <ip>] [--wait-image <file.bmp>]
-                 <device-name> [stream-name]
+                 [--retry-wait <seconds>] <device-name> [stream-name]
        ndiclient [--ipaddr <ip>]          (list discovered sources)";
 
 struct Invocation {
@@ -73,9 +79,9 @@ enum Command {
 /// The command line sorted into its parts, before they are interpreted.
 struct SortedArguments<'a> {
     names: Vec<&'a String>,
-    view_options: Vec<&'a String>,
-    wait_image: Option<PathBuf>,
-    scope: DiscoveryScope,
+    flags: Vec<&'a String>,
+    /// The value given to each of the `VALUE_OPTIONS` used.
+    values: HashMap<&'a str, &'a String>,
 }
 
 /// Whether the source's audio is played. Without it, no audio device is opened.
@@ -99,6 +105,22 @@ struct ViewOptions {
     verbosity: Verbosity,
     /// Shown instead of the video while the source sends none.
     wait_image: Option<PathBuf>,
+    /// Whether a long stall makes the viewer connect anew.
+    retry: RetryPolicy,
+}
+
+/// Why watching one connection came to an end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ending {
+    WindowClosed,
+    Reconnect,
+}
+
+/// What a search for the source with the window already open came to.
+enum Rediscovery {
+    Found(SourceDescriptor),
+    Missing(String),
+    WindowClosed,
 }
 
 fn main() -> ExitCode {
@@ -115,49 +137,38 @@ fn run() -> Result<(), String> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let invocation = parse_arguments(&arguments)?;
     let runtime = NdiRuntime::initialize()?;
-    let finder = SourceFinder::new(&runtime, invocation.scope)?;
     match invocation.command {
-        Command::ListSources => {
-            list_sources(&finder, invocation.scope);
-            Ok(())
-        }
+        Command::ListSources => list_sources(&runtime, invocation.scope),
         Command::ShowVideo { query, options } => {
-            show_video(&runtime, &finder, &query, invocation.scope, options)
+            show_video(&runtime, &query, invocation.scope, options)
         }
     }
 }
 
 fn parse_arguments(arguments: &[String]) -> Result<Invocation, String> {
     let sorted = sort_arguments(arguments)?;
-    let scope = sorted.scope;
-    let command = parse_command(sorted)?;
+    let scope = parse_scope(sorted.values.get(IP_ADDRESS_OPTION).copied())?;
+    let command = parse_command(&sorted)?;
     Ok(Invocation { scope, command })
 }
 
-/// `--ipaddr` and `--wait-image` take the argument after them as their
-/// value; other options stand alone.
+/// The `VALUE_OPTIONS` take the argument after them as their value; other
+/// options stand alone. Each of them may be given once.
 fn sort_arguments(arguments: &[String]) -> Result<SortedArguments<'_>, String> {
     let mut sorted = SortedArguments {
         names: Vec::new(),
-        view_options: Vec::new(),
-        wait_image: None,
-        scope: DiscoveryScope::Network,
+        flags: Vec::new(),
+        values: HashMap::new(),
     };
     let mut remaining = arguments.iter();
     while let Some(argument) = remaining.next() {
-        if argument == IP_ADDRESS_OPTION {
-            if sorted.scope != DiscoveryScope::Network {
+        if VALUE_OPTIONS.contains(&argument.as_str()) {
+            let value = remaining.next().ok_or_else(|| USAGE.to_string())?;
+            if sorted.values.insert(argument.as_str(), value).is_some() {
                 return Err(USAGE.to_string());
             }
-            sorted.scope = DiscoveryScope::Address(parse_ip_address(remaining.next())?);
-        } else if argument == WAIT_IMAGE_OPTION {
-            if sorted.wait_image.is_some() {
-                return Err(USAGE.to_string());
-            }
-            let path = remaining.next().ok_or_else(|| USAGE.to_string())?;
-            sorted.wait_image = Some(PathBuf::from(path));
         } else if argument.starts_with(OPTION_PREFIX) {
-            sorted.view_options.push(argument);
+            sorted.flags.push(argument);
         } else {
             sorted.names.push(argument);
         }
@@ -165,15 +176,22 @@ fn sort_arguments(arguments: &[String]) -> Result<SortedArguments<'_>, String> {
     Ok(sorted)
 }
 
-fn parse_ip_address(value: Option<&String>) -> Result<IpAddr, String> {
-    let value = value.ok_or_else(|| USAGE.to_string())?;
+fn parse_scope(ip_address: Option<&String>) -> Result<DiscoveryScope, String> {
+    let Some(value) = ip_address else {
+        return Ok(DiscoveryScope::Network);
+    };
     value
         .parse()
+        .map(DiscoveryScope::Address)
         .map_err(|_| format!("\"{value}\" is not an IP address\n{USAGE}"))
 }
 
-fn parse_command(sorted: SortedArguments) -> Result<Command, String> {
-    let lists_sources = sorted.view_options.is_empty() && sorted.wait_image.is_none();
+fn parse_command(sorted: &SortedArguments) -> Result<Command, String> {
+    let lists_sources = sorted.flags.is_empty()
+        && sorted
+            .values
+            .keys()
+            .all(|option| *option == IP_ADDRESS_OPTION);
     let query = match sorted.names.as_slice() {
         [] if lists_sources => return Ok(Command::ListSources),
         [device_name] => SourceQuery::any_stream_on(device_name.to_string()),
@@ -182,23 +200,29 @@ fn parse_command(sorted: SortedArguments) -> Result<Command, String> {
         }
         _ => return Err(USAGE.to_string()),
     };
-    let options = parse_options(&sorted.view_options, sorted.wait_image)?;
+    let options = parse_options(sorted)?;
     Ok(Command::ShowVideo { query, options })
 }
 
-fn parse_options(options: &[&String], wait_image: Option<PathBuf>) -> Result<ViewOptions, String> {
-    let distinct: HashSet<&&String> = options.iter().collect();
-    if distinct.len() != options.len() {
+fn parse_options(sorted: &SortedArguments) -> Result<ViewOptions, String> {
+    let flags = &sorted.flags;
+    let distinct: HashSet<&&String> = flags.iter().collect();
+    if distinct.len() != flags.len() {
         return Err(USAGE.to_string());
     }
     let mut parsed = ViewOptions {
         window_mode: WindowMode::Windowed,
         audio_mode: AudioMode::Play,
         verbosity: Verbosity::Quiet,
-        wait_image,
+        wait_image: sorted
+            .values
+            .get(WAIT_IMAGE_OPTION)
+            .copied()
+            .map(PathBuf::from),
+        retry: parse_retry_wait(sorted.values.get(RETRY_WAIT_OPTION).copied())?,
     };
-    for option in options {
-        match option.as_str() {
+    for flag in flags {
+        match flag.as_str() {
             FULLSCREEN_OPTION => parsed.window_mode = WindowMode::Fullscreen,
             NO_AUDIO_OPTION => parsed.audio_mode = AudioMode::Mute,
             DEBUG_OPTION => parsed.verbosity = Verbosity::Debug,
@@ -208,7 +232,19 @@ fn parse_options(options: &[&String], wait_image: Option<PathBuf>) -> Result<Vie
     Ok(parsed)
 }
 
-fn list_sources(finder: &SourceFinder, scope: DiscoveryScope) {
+/// Without `--retry-wait`, a stalled connection is waited for indefinitely.
+fn parse_retry_wait(seconds: Option<&String>) -> Result<RetryPolicy, String> {
+    let Some(value) = seconds else {
+        return Ok(RetryPolicy::KeepWaiting);
+    };
+    value
+        .parse()
+        .map(|seconds| RetryPolicy::ReconnectAfter(Duration::from_secs(seconds)))
+        .map_err(|_| format!("\"{value}\" is not a whole number of seconds\n{USAGE}"))
+}
+
+fn list_sources(runtime: &NdiRuntime, scope: DiscoveryScope) -> Result<(), String> {
+    let finder = SourceFinder::new(runtime, scope)?;
     let location = scope.location_suffix();
     println!("Discovering NDI sources{location} for {LISTING_DURATION:?}...");
     let names = finder.source_names_after(LISTING_DURATION);
@@ -218,33 +254,43 @@ fn list_sources(finder: &SourceFinder, scope: DiscoveryScope) {
     for name in names {
         println!("{name}");
     }
+    Ok(())
 }
 
+/// A source that isn't found at start-up is an error. Once the window is
+/// open, reconnections search again until the source is back.
 fn show_video(
     runtime: &NdiRuntime,
-    finder: &SourceFinder,
     query: &SourceQuery,
     scope: DiscoveryScope,
     options: ViewOptions,
 ) -> Result<(), String> {
-    let wait_image = load_wait_image(options.wait_image)?;
-    println!("Searching for {query}{}...", scope.location_suffix());
+    let wait_image = load_wait_image(options.wait_image.as_deref())?;
+    let finder = SourceFinder::new(runtime, scope)?;
+    announce_search(query, scope);
     let source = finder.find_source(query, DISCOVERY_TIMEOUT)?;
-    println!("Connecting to \"{}\"", source.name());
-
-    let receiver = Receiver::connect(runtime, &source)?;
-    let frame_sync = FrameSync::new(&receiver)?;
     let sdl = sdl2::init()?;
-    let mut window = VideoWindow::open(&sdl, &source.name(), options.window_mode, wait_image)?;
-    let frame_rate = frame_rate_meter(options.verbosity);
-    match options.audio_mode {
-        AudioMode::Play => stream_video_and_audio(&sdl, &frame_sync, &mut window, frame_rate),
-        AudioMode::Mute => stream_video(&frame_sync, &mut window, None, frame_rate),
+    let window = VideoWindow::open(&sdl, &source.name(), options.window_mode, wait_image)?;
+    let mut viewer = Viewer {
+        sdl,
+        window,
+        options,
+    };
+    let mut ending = viewer.watch(runtime, &source)?;
+    // Each reconnection starts from scratch, with a finder of its own.
+    drop(finder);
+    while ending == Ending::Reconnect {
+        ending = viewer.reconnect(runtime, query, scope)?;
     }
+    Ok(())
 }
 
-fn load_wait_image(path: Option<PathBuf>) -> Result<Option<WaitImage>, String> {
-    path.map(|path| WaitImage::load(&path)).transpose()
+fn load_wait_image(path: Option<&Path>) -> Result<Option<WaitImage>, String> {
+    path.map(WaitImage::load).transpose()
+}
+
+fn announce_search(query: &SourceQuery, scope: DiscoveryScope) {
+    println!("Searching for {query}{}...", scope.location_suffix());
 }
 
 /// The frame rate is a debug message, so it is only measured when debugging.
@@ -255,60 +301,121 @@ fn frame_rate_meter(verbosity: Verbosity) -> Option<FrameRateMeter> {
     }
 }
 
-/// Plays the audio alongside the video; without a usable audio output, the video still shows.
-fn stream_video_and_audio(
-    sdl: &sdl2::Sdl,
-    frame_sync: &FrameSync,
-    window: &mut VideoWindow,
-    frame_rate: Option<FrameRateMeter>,
-) -> Result<(), String> {
-    let buffer = Arc::new(Mutex::new(JitterBuffer::new(AUDIO_LATENCY, AUDIO_FADE)));
-    match Speaker::new(sdl, Arc::clone(&buffer)) {
-        Ok(mut speaker) => audio_pump::run_alongside(frame_sync, &buffer, || {
-            stream_video(frame_sync, window, Some(&mut speaker), frame_rate)
-        }),
-        Err(error) => {
-            report_audio_failure(&error);
-            stream_video(frame_sync, window, None, frame_rate)
-        }
-    }
+/// The window and how to play the source in it, kept across reconnections.
+struct Viewer {
+    sdl: sdl2::Sdl,
+    window: VideoWindow,
+    options: ViewOptions,
 }
 
-/// Draws once per display refresh, paced by vsync: a frame the source has
-/// newly sent is uploaded, otherwise the last picture is drawn again.
-fn stream_video(
-    frame_sync: &FrameSync,
-    window: &mut VideoWindow,
-    mut speaker: Option<&mut Speaker>,
-    mut frame_rate: Option<FrameRateMeter>,
-) -> Result<(), String> {
-    let mut stall = StallDetector::new(STALL_THRESHOLD);
-    let mut shown: Option<FrameStamp> = None;
-    while window.handle_events()? == WindowStatus::Open {
-        if let Some(speaker) = speaker.as_deref_mut() {
-            follow_audio_format(speaker);
-            report_audio_latency(speaker);
+impl Viewer {
+    /// Connects to `source` and plays it until the window is closed or the
+    /// retry policy gives up on the connection. All NDI objects of the
+    /// connection are gone when it returns.
+    fn watch(&mut self, runtime: &NdiRuntime, source: &SourceDescriptor) -> Result<Ending, String> {
+        println!("Connecting to \"{}\"", source.name());
+        let receiver = Receiver::connect(runtime, source)?;
+        let frame_sync = FrameSync::new(&receiver)?;
+        match self.options.audio_mode {
+            AudioMode::Play => self.stream_video_and_audio(&frame_sync),
+            AudioMode::Mute => self.stream_video(&frame_sync, None),
         }
-        let frame = frame_sync.capture_video();
-        let stamp = frame.as_ref().map(ndi::VideoFrame::stamp);
-        match frame {
-            Some(frame) if stamp != shown => {
-                show_frame(&frame, window)?;
-                shown = stamp;
-                stall.record_frame();
-                if let Some(frame_rate) = frame_rate.as_mut() {
-                    report_frame_rate(frame_rate);
-                }
+    }
+
+    /// Searches for the source and connects to it as at start-up, while the
+    /// window keeps showing the last picture or the wait image. A search
+    /// that finds nothing is reported, and the caller tries again.
+    fn reconnect(
+        &mut self,
+        runtime: &NdiRuntime,
+        query: &SourceQuery,
+        scope: DiscoveryScope,
+    ) -> Result<Ending, String> {
+        println!("Reconnecting");
+        let finder = SourceFinder::new(runtime, scope)?;
+        announce_search(query, scope);
+        match self.rediscover(&finder, query)? {
+            Rediscovery::Found(source) => self.watch(runtime, &source),
+            Rediscovery::Missing(message) => {
+                eprintln!("ndiclient: {message}");
+                Ok(Ending::Reconnect)
             }
-            _ => {
-                if stall.take_new_stall() {
-                    report_stall(window)?;
-                }
-                window.present()?;
+            Rediscovery::WindowClosed => Ok(Ending::WindowClosed),
+        }
+    }
+
+    /// Polls the search once per display refresh, so the window still
+    /// answers to its keys and can be closed meanwhile.
+    fn rediscover(
+        &mut self,
+        finder: &SourceFinder,
+        query: &SourceQuery,
+    ) -> Result<Rediscovery, String> {
+        let search = finder.search(query, DISCOVERY_TIMEOUT);
+        while self.window.handle_events()? == WindowStatus::Open {
+            match search.poll() {
+                Ok(Some(source)) => return Ok(Rediscovery::Found(source)),
+                Ok(None) => self.window.present()?,
+                Err(message) => return Ok(Rediscovery::Missing(message)),
+            }
+        }
+        Ok(Rediscovery::WindowClosed)
+    }
+
+    /// Plays the audio alongside the video; without a usable audio output,
+    /// the video still shows.
+    fn stream_video_and_audio(&mut self, frame_sync: &FrameSync) -> Result<Ending, String> {
+        let buffer = Arc::new(Mutex::new(JitterBuffer::new(AUDIO_LATENCY, AUDIO_FADE)));
+        match Speaker::new(&self.sdl, Arc::clone(&buffer)) {
+            Ok(mut speaker) => audio_pump::run_alongside(frame_sync, &buffer, || {
+                self.stream_video(frame_sync, Some(&mut speaker))
+            }),
+            Err(error) => {
+                report_audio_failure(&error);
+                self.stream_video(frame_sync, None)
             }
         }
     }
-    Ok(())
+
+    /// Draws once per display refresh, paced by vsync: a frame the source
+    /// has newly sent is uploaded, otherwise the last picture is drawn again.
+    fn stream_video(
+        &mut self,
+        frame_sync: &FrameSync,
+        mut speaker: Option<&mut Speaker>,
+    ) -> Result<Ending, String> {
+        let mut stall = StallDetector::new(STALL_THRESHOLD);
+        let mut frame_rate = frame_rate_meter(self.options.verbosity);
+        let mut shown: Option<FrameStamp> = None;
+        while self.window.handle_events()? == WindowStatus::Open {
+            if let Some(speaker) = speaker.as_deref_mut() {
+                follow_audio_format(speaker);
+                report_audio_latency(speaker);
+            }
+            let frame = frame_sync.capture_video();
+            let stamp = frame.as_ref().map(ndi::VideoFrame::stamp);
+            match frame {
+                Some(frame) if stamp != shown => {
+                    show_frame(&frame, &mut self.window)?;
+                    shown = stamp;
+                    stall.record_frame();
+                    if let Some(frame_rate) = frame_rate.as_mut() {
+                        report_frame_rate(frame_rate);
+                    }
+                }
+                _ => {
+                    if stall.take_new_stall() {
+                        report_stall(&mut self.window)?;
+                    }
+                    if self.options.retry.gives_up_on(&stall) {
+                        return Ok(Ending::Reconnect);
+                    }
+                    self.window.present()?;
+                }
+            }
+        }
+        Ok(Ending::WindowClosed)
+    }
 }
 
 fn show_frame(frame: &ndi::VideoFrame, window: &mut VideoWindow) -> Result<(), String> {
@@ -450,6 +557,7 @@ mod tests {
             audio_mode: AudioMode::Mute,
             verbosity: Verbosity::Quiet,
             wait_image: None,
+            retry: RetryPolicy::KeepWaiting,
         };
         assert_eq!(parsed, Some(expected));
     }
@@ -633,6 +741,94 @@ mod tests {
             "offline.bmp",
             "STUDIO",
         ]);
+        assert!(command.is_err());
+    }
+
+    fn retry(values: &[&str]) -> Option<RetryPolicy> {
+        options(values).map(|options| options.retry)
+    }
+
+    fn reconnect_after(seconds: u64) -> Option<RetryPolicy> {
+        Some(RetryPolicy::ReconnectAfter(Duration::from_secs(seconds)))
+    }
+
+    #[test]
+    fn stalled_video_is_waited_for_by_default() {
+        assert_eq!(retry(&["STUDIO"]), Some(RetryPolicy::KeepWaiting));
+    }
+
+    #[test]
+    fn retry_wait_option_reconnects_after_seconds() {
+        let parsed = retry(&["--retry-wait", "30", "STUDIO", "OBS PGM"]);
+        assert_eq!(parsed, reconnect_after(30));
+    }
+
+    #[test]
+    fn retry_wait_option_may_follow_names() {
+        assert_eq!(
+            retry(&["STUDIO", "--retry-wait", "30"]),
+            reconnect_after(30)
+        );
+    }
+
+    #[test]
+    fn retry_wait_option_accepts_zero() {
+        assert_eq!(retry(&["--retry-wait", "0", "STUDIO"]), reconnect_after(0));
+    }
+
+    #[test]
+    fn retry_wait_value_is_not_taken_as_stream_name() {
+        let command = command(&["STUDIO", "--retry-wait", "30", "extra", "more"]);
+        assert!(command.is_err());
+    }
+
+    #[test]
+    fn retry_wait_option_combines_with_value_options() {
+        let parsed = retry(&[
+            "--ipaddr",
+            "192.0.2.20",
+            "--retry-wait",
+            "30",
+            "--wait-image",
+            "standby.bmp",
+            "STUDIO",
+        ]);
+        assert_eq!(parsed, reconnect_after(30));
+    }
+
+    #[test]
+    fn retry_wait_option_without_device_is_rejected() {
+        assert!(command(&["--retry-wait", "30"]).is_err());
+    }
+
+    #[test]
+    fn retry_wait_option_with_ipaddr_but_without_device_is_rejected() {
+        assert!(command(&["--ipaddr", "192.0.2.20", "--retry-wait", "30"]).is_err());
+    }
+
+    #[test]
+    fn retry_wait_option_without_seconds_is_rejected() {
+        assert!(command(&["STUDIO", "--retry-wait"]).is_err());
+    }
+
+    #[test]
+    fn retry_wait_option_with_word_is_rejected() {
+        assert!(command(&["--retry-wait", "soon", "STUDIO"]).is_err());
+    }
+
+    #[test]
+    fn retry_wait_option_with_negative_seconds_is_rejected() {
+        assert!(command(&["--retry-wait", "-5", "STUDIO"]).is_err());
+    }
+
+    #[test]
+    fn retry_wait_option_with_fractional_seconds_is_rejected() {
+        assert!(command(&["--retry-wait", "1.5", "STUDIO"]).is_err());
+    }
+
+    #[test]
+    fn repeated_retry_wait_option_is_rejected() {
+        let command = command(&["--retry-wait", "10", "--retry-wait", "20", "STUDIO"]);
         assert!(command.is_err());
     }
 }

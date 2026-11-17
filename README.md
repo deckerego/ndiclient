@@ -76,6 +76,18 @@ Without a device name, `--ipaddr` lists the sources at that address:
 target/release/ndiclient --ipaddr 192.0.2.20
 ```
 
+When the video stops, ndiclient normally waits for the source to come back
+and lets NDI reconnect by itself. Add `--retry-wait` with a number of seconds
+to start over instead: once "Waiting for video..." has been shown for n
+seconds, the connection is closed and the source is searched for again. 
+The window remains open (showing the wait image, if given), 
+and a search that finds nothing is repeated until the source is back. 
+This option can help `ndiclient` find a source again that may restarted on 
+another port, such as when a connection pinned with `--ipaddr`:
+```sh
+target/release/ndiclient --fullscreen --retry-wait 30 --ipaddr 192.0.2.20 STUDIO PGM
+```
+
 The device name is matched ignoring case; the stream name must match exactly.
 If no matching source is discovered within 10 seconds, the error lists the
 sources that were discovered.

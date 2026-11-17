@@ -100,17 +100,28 @@ impl<'runtime> SourceFinder<'runtime> {
         query: &SourceQuery,
         timeout: Duration,
     ) -> Result<SourceDescriptor, String> {
-        let deadline = Instant::now() + timeout;
-        let mut seen_names = Vec::new();
-        while Instant::now() < deadline {
-            let sources = self.current_sources();
-            seen_names = unique_names(&sources);
-            if let Some(source) = sources.into_iter().find(|source| source.satisfies(query)) {
+        let search = self.search(query, timeout);
+        loop {
+            if let Some(source) = search.poll()? {
                 return Ok(source);
             }
-            self.wait_for_change(deadline);
+            self.wait_for_change(search.deadline);
         }
-        Err(self.not_found_message(query, timeout, &seen_names))
+    }
+
+    /// A search for the first source matching `query` that the caller polls,
+    /// so it can do other work while it waits.
+    pub fn search<'search>(
+        &'search self,
+        query: &'search SourceQuery,
+        timeout: Duration,
+    ) -> SourceSearch<'search> {
+        SourceSearch {
+            finder: self,
+            query,
+            timeout,
+            deadline: Instant::now() + timeout,
+        }
     }
 
     /// Always waits the full `duration`: NDI cannot tell when every source on
@@ -166,6 +177,36 @@ impl<'runtime> SourceFinder<'runtime> {
             "{not_found}. Sources discovered{location}: {}",
             seen_names.join(", ")
         )
+    }
+}
+
+/// A search for one source that gives up after its timeout.
+pub struct SourceSearch<'search> {
+    finder: &'search SourceFinder<'search>,
+    query: &'search SourceQuery,
+    timeout: Duration,
+    deadline: Instant,
+}
+
+impl SourceSearch<'_> {
+    /// The first matching source if it has been discovered, `None` while
+    /// the search goes on, and an error naming the sources discovered
+    /// instead once the timeout has passed.
+    pub fn poll(&self) -> Result<Option<SourceDescriptor>, String> {
+        let sources = self.finder.current_sources();
+        let seen_names = unique_names(&sources);
+        if let Some(source) = sources
+            .into_iter()
+            .find(|source| source.satisfies(self.query))
+        {
+            return Ok(Some(source));
+        }
+        if Instant::now() < self.deadline {
+            return Ok(None);
+        }
+        Err(self
+            .finder
+            .not_found_message(self.query, self.timeout, &seen_names))
     }
 }
 
