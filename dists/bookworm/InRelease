@@ -4,26 +4,26 @@ Hash: SHA512
 Architectures: arm64
 Codename: bookworm
 Components: main
-Date: Tue, 20 Oct 2026 21:30:07 +0000
+Date: Tue, 17 Nov 2026 01:46:27 +0000
 Label: ndiclient
 Origin: ndiclient
 Suite: bookworm
 MD5Sum:
- 2e76b3ddd22b16f44b4af9142217a4cb             4628 main/binary-arm64/Packages
- bd554e25c1583a49f9b7d78620294cab             1333 main/binary-arm64/Packages.gz
+ 27ad67ab5fc3b26dca1999f4f3bfce4b             5785 main/binary-arm64/Packages
+ 9270b008298b4a706718ec66478a24ae             1534 main/binary-arm64/Packages.gz
 SHA1:
- c06dec128d19b67994f86c6fe39c0d9f6d700e3f             4628 main/binary-arm64/Packages
- ed0645dab6b74dcfc1cb30769897c5e413eb4deb             1333 main/binary-arm64/Packages.gz
+ d05fd0199d87bc13f6da906af3305e3542d5d0b1             5785 main/binary-arm64/Packages
+ e12b3db01b96085332ddc9e69b3379c5d8f98634             1534 main/binary-arm64/Packages.gz
 SHA256:
- d4cee9d193dcdc986bf9a14992996276b56c9e13f95dcecb3ff8f189f65d6466             4628 main/binary-arm64/Packages
- 1d6172a8e8a01bdd44128480ae10bd755364dcc6c815d753d2d462678f2189a9             1333 main/binary-arm64/Packages.gz
+ 5c682fa23b15d69fbb532cfcb70bdcf4fdac8dc0cb26a26267f0fc33e3e9032e             5785 main/binary-arm64/Packages
+ da5917c3698ecf8774183a9c54331eb0af006e53d827ac250c2579c8c9c87193             1534 main/binary-arm64/Packages.gz
 SHA512:
- 2e1b89512e405ddbd438f5fd725dd9b649ea61cb09073f102200ce8ac6a5535803492bf74c3b9442573db8b08888597d0cf3682c7b6e95348243ca5443b831e8             4628 main/binary-arm64/Packages
- 34f40ea4a619c9b082018b7c7adcf4745efb3a142c759fd17e8e8a3883ad49679757755ff6ec112ae0d5ff7e510ae23690a6bb735b119b9bf15f5966e8ce4056             1333 main/binary-arm64/Packages.gz
+ 93467386314fdc278e5760e94447153410655d32c93c83156265e86ec002b7f3d5f2e6b015c16e4f53bb56232f273afa976b4790949318ebeaccd7e9a6f1a365             5785 main/binary-arm64/Packages
+ b03dd8d7113f9ac66f8fc930166fb15d5894e091164eff4f2b611cdf9b41de5bb4d1e95bba73e3a2a28cdc0fb1429bf8efc2b98511c94a25210167f14bfab54a             1534 main/binary-arm64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQR33VNroXxOtIvc6IGJU3i8P9IjagUCatfdXwAKCRCJU3i8P9Ij
-atKLAQCH4JfImUFm3VpTh2aJqfQRfTsh3zVOtu7YsLG4EhrAZQD/cy8B1mjipk+Y
-XYFrFugKYZ97/8qKeUwXjQ9KyK+oxQY=
-=UGQN
+iHUEARYKAB0WIQR33VNroXxOtIvc6IGJU3i8P9IjagUCavux8wAKCRCJU3i8P9Ij
+au8aAP0a9uS/hORP3MxRGvIkwDzuphh7H59dNkVUQHEhcZITkgD/aU2j/VNYeDC7
+uO9G5O8xa3k60QmxXVhEnhmcnEbxBAk=
+=qp8S
 -----END PGP SIGNATURE-----
