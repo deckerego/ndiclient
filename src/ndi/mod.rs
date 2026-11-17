@@ -8,7 +8,7 @@ mod receiver;
 mod runtime;
 mod scope;
 
-pub use finder::SourceFinder;
+pub use finder::{SourceDescriptor, SourceFinder};
 pub use frame_sync::{FrameStamp, FrameSync, VideoFrame};
 pub use query::SourceQuery;
 pub use receiver::Receiver;

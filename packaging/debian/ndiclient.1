@@ -15,6 +15,8 @@ command line NDI video monitor
 .IR ip-address ]
 .RB [ \-\-wait\-image
 .IR file.bmp ]
+.RB [ \-\-retry\-wait
+.IR seconds ]
 .I device-name
 .RI [ stream-name ]
 .SH DESCRIPTION
@@ -60,6 +62,14 @@ idle screen is not mistaken for one that is switched off. It is scaled to
 the window, keeping its aspect ratio, and replaced by the video as soon as
 the video returns. Only BMP files are accepted; anything else ends the
 program with an error at start-up.
+.PP
+.BI \-\-retry\-wait " seconds"
+When the source has sent no video for 3 seconds plus this many whole
+seconds, close the connection and search for the source and connect to it
+again, as at start-up. The window stays open meanwhile. If the source is
+not found within 10 seconds, that is reported and the search starts again.
+Without this option, ndiclient waits for the video to return on the same
+connection however long it takes.
 .SH KEYS
 .PP
 .BR F11 ", " F
@@ -98,6 +108,10 @@ Show the first stream of device STUDIO without its audio.
 Show the first stream of device STUDIO fullscreen, and
 .B standby.bmp
 while it sends no video.
+.PP
+.B ndiclient \-\-retry\-wait 30 STUDIO
+Show the first stream of device STUDIO, and connect to it anew whenever it
+has sent no video for 33 seconds.
 .PP
 .B ndiclient \-\-ipaddr 192.0.2.20 STUDIO \(dqOBS PGM\(dq
 Show the source

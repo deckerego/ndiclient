@@ -1,10 +1,11 @@
 # ndiclient
 
 Command line NDI receiver for Raspberry Pi OS (Raspbian) ARM64.
-`ndiclient [-d] [--fullscreen] [--noaudio] [--ipaddr <ip>] [--wait-image <file.bmp>] <device-name> [stream-name]`
+`ndiclient [-d] [--fullscreen] [--noaudio] [--ipaddr <ip>] [--wait-image <file.bmp>] [--retry-wait <seconds>] <device-name> [stream-name]`
 uses NDI discovery to find the source named `DEVICE (Stream)` (or the first
 stream on that device), shows its video in a desktop window or fullscreen
-(or an optional image while no video arrives) and plays its audio.
+(or an optional image while no video arrives) and plays its audio. With
+`--retry-wait` it connects anew when the video stays away too long.
 `ndiclient [--ipaddr <ip>]` without names lists the sources it discovers.
 
 ## Coding standard
@@ -42,6 +43,7 @@ target/release/ndiclient -d STUDIO
 target/release/ndiclient --ipaddr 192.0.2.20 STUDIO "OBS PGM"
 target/release/ndiclient --ipaddr 192.0.2.20
 target/release/ndiclient --wait-image standby.bmp STUDIO
+target/release/ndiclient --retry-wait 30 STUDIO "OBS PGM"
 packaging/build_deb.sh
 ```
 
@@ -65,8 +67,8 @@ packaging/build_deb.sh
   interface of the source. For multicast lost between Wi-Fi and wired
   Ethernet, and to pick one interface of a multi-homed source. Without a
   device name it lists the sources at that address. Options may come in any order, each
-  at most once; `--ipaddr` and `--wait-image` take the next argument as
-  their value.
+  at most once; `--ipaddr`, `--wait-image` and `--retry-wait` take the
+  next argument as their value.
 - `--wait-image <file.bmp>` shows that image whenever "Waiting for
   video..." is printed (also at start-up, after 3 s without a first
   frame), letterboxed to the window like the video, until the next new
@@ -74,6 +76,19 @@ packaging/build_deb.sh
   read before discovery, and a missing or non-BMP file exits 1 at once.
   The image's texture exists only while it is shown. Not valid without a
   device name.
+- `--retry-wait <seconds>` (whole seconds, 0 allowed): once "Waiting for
+  video..." has been printed and that many more seconds pass without a
+  frame, the connection is torn down (frame-sync, receiver, audio device
+  and pump, and the finder) and made again as at start-up: "Reconnecting",
+  a new finder searches for the source (10 s), then "Connecting to ...".
+  The window stays open meanwhile, showing the last picture or the wait
+  image, and still answers to Escape and F11/F. A search that finds
+  nothing prints the "Did not find" message (it doesn't exit) and is
+  repeated at once. Without a stream name, a reconnect may pick another
+  stream on the device; the window title keeps the first one's name.
+  Without the option, the stalled connection is waited for indefinitely
+  (NDI's own reconnecting). Not found at start-up still exits 1. Not
+  valid without a device name.
 - Kiosk mode: in fullscreen the mouse cursor is hidden. F11 or F switches
   between windowed and fullscreen at runtime (held keys don't repeat it).
 - Close the window or press Escape to quit (also in fullscreen).
@@ -183,8 +198,10 @@ packaging/build_deb.sh
 
 ```
 src/main.rs          argument parsing (Invocation, Command, ViewOptions:
-                     -d, --fullscreen, --noaudio, --ipaddr, --wait-image),
-                     wiring, source listing, main capture/display loop
+                     -d, --fullscreen, --noaudio, --ipaddr, --wait-image,
+                     --retry-wait), wiring, source listing, Viewer: the
+                     window kept across connections, capture/display loop,
+                     reconnecting
 src/picture.rs       Picture / PixelLayout / Dimensions: display-agnostic frame view
 src/sound.rs         Sound / AudioFormat: device-agnostic planar audio view,
                      interleaving, channel narrowing
@@ -201,12 +218,14 @@ src/display.rs       VideoWindow / WindowMode: SDL2 window or fullscreen,
                      key handling, cursor hiding, streaming texture,
                      wait image, letterboxing
 src/frame_rate.rs    FrameRateMeter: periodic fps reporting
-src/stall.rs         StallDetector: "waiting for video" once per stall
+src/stall.rs         StallDetector: "waiting for video" once per stall;
+                     RetryPolicy: when a stall gives up the connection
 src/wait_image.rs    WaitImage: the BMP shown while no video arrives
 src/ndi/ffi.rs       raw C declarations for the NDI SDK
 src/ndi/runtime.rs   NdiRuntime: RAII for NDIlib_initialize/NDIlib_destroy
 src/ndi/query.rs     SourceQuery: device + optional stream name, matching rules
-src/ndi/finder.rs    SourceFinder / SourceDescriptor: list sources, find one matching a query
+src/ndi/finder.rs    SourceFinder / SourceDescriptor / SourceSearch: list
+                     sources, find one matching a query (blocking or polled)
 src/ndi/scope.rs     DiscoveryScope: whole network or one IP address (--ipaddr)
 src/ndi/receiver.rs  Receiver: the connection to the chosen source
 src/ndi/frame_sync.rs FrameSync / VideoFrame / FrameStamp / AudioFrame: NDI
@@ -351,6 +370,19 @@ Key decisions:
   `NDIlib_audio_frame_v2_t`, always planar 32-bit float, asked for in the
   source's own rate and channel count (it is asked for those first, with
   zeros); its queue depth is `NDIlib_framesync_audio_queue_depth`.
+- **Reconnecting (`--retry-wait`).** NDI reconnects a receiver by itself,
+  but a pinned (`--ipaddr`) receiver can't follow a sender that returns on
+  another port, and a stale connection can stay silent. `RetryPolicy`
+  (from `--retry-wait`) gives up once the `StallDetector` has been stalled
+  for the threshold plus the patience; `Viewer::stream_video` then returns
+  `Ending::Reconnect` and every NDI object of that connection is dropped
+  (the lifetimes force it) before `Viewer::reconnect` creates a new
+  finder, as if the program had just started. The `NdiRuntime`, SDL and
+  the window are kept, so a kiosk screen never closes. The search after a
+  reconnect is polled (`SourceSearch::poll`) once per display refresh
+  instead of blocking in `find_source`, so the window keeps handling its
+  events. As at start-up, the finder stays alive while the connection
+  runs.
 - **Kiosk mode.** `WindowMode` decides fullscreen type and cursor
   visibility; `VideoWindow::enter` applies both, at open and on toggle. The
   window is always created resizable so it stays resizable after leaving
@@ -366,8 +398,8 @@ Key decisions:
 - `cargo test`: unit tests for argument parsing, source query matching, the
   frame-rate meter, the stall detector, the UYVY→I420 repacking, window mode
   toggling, key handling, audio interleaving and channel narrowing, the
-  frame-sync padding remover, the jitter buffer, the discovery scope and
-  wait image loading (125 tests; the wait image tests write scratch BMPs
+  frame-sync padding remover, the jitter buffer, the discovery scope,
+  the retry policy and wait image loading (142 tests; the wait image tests write scratch BMPs
   to the temp directory).
 - CI (`.github/workflows/unit-tests.yml`) runs `cargo test` on non-draft PRs
   into `main`. The NDI SDK isn't available there, so it links an empty stub
@@ -541,6 +573,15 @@ Key decisions:
   printed "Waiting for video..." when the sender stopped and resumed at
   30 fps when it restarted (same port). The cable pull itself was not
   repeated by the developer (no sudo for a firewall rule to simulate it).
+- `--retry-wait` (2026-11-16): local test pattern with `--retry-wait 2`:
+  stopping the sender printed "Waiting for video..." and 2 s later
+  "Reconnecting"; the new search found nothing for 10 s (the "Did not
+  find" message listed the other sources, no exit) and searched again,
+  which found the restarted sender and played at 30 fps with audio; SIGTERM
+  exit 0. Without the option, the same stop and restart printed "Waiting
+  for video..." only and NDI resumed the video itself (30 fps). Closing
+  the window or Escape during a search was not tested by injected
+  keypress.
 - Not yet tested: a 60 fps source over wired Ethernet, choosing between
   two sources that are live on one host at the same time, NDI|HX
   (H.264/H.265) sources, sources with alpha, interlaced sources.
@@ -550,7 +591,7 @@ Key decisions:
 - When the source disappears, nothing reports an error (the frame-sync has
   no error frame); the window keeps the last frame, "Waiting for video..."
   is printed after 3 s, and NDI reconnects automatically if the source
-  returns.
+  returns (or, with `--retry-wait`, ndiclient reconnects from scratch).
 - Holes of digital silence that a sender punches into its audio (OBS
   while its network struggles) are not concealed and sound like static;
   see No dropout concealment any more.
@@ -566,7 +607,7 @@ Key decisions:
 - Unsupported pixel formats (e.g. P216/PA16, which we never request) end the
   program with an error.
 - Hardcoded: SDK path default, 1280x720 initial window, 10 s discovery
-  timeout, 5 s listing duration, 5 s fps report interval, 3 s stall threshold, highest bandwidth,
+  timeout (also for each search after a reconnect), 5 s listing duration, 5 s fps report interval, 3 s stall threshold, highest bandwidth,
   100/400 ms audio latency, 40 ms left in the frame-sync, 5 ms pump
   interval, 5 ms audio fades, 1024-sample audio device buffer, 2 played
   channels.
@@ -575,8 +616,8 @@ Key decisions:
 - Discovery relies on mDNS (or an NDI discovery server). Where multicast is
   blocked, `--ipaddr` queries the source's host directly. It takes one IP
   address, not a host name or a list. A connection made through it doesn't
-  find the source again if the sender restarts on another port; run
-  ndiclient again.
+  find the source again if the sender restarts on another port; use
+  `--retry-wait` (or run ndiclient again).
 - Stream name matching is exact and case-sensitive; no partial or wildcard
   matching.
 - NDI EULA clause 1.b.iii excludes products running on "embedded devices"
