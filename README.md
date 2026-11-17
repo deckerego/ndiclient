@@ -78,13 +78,12 @@ target/release/ndiclient --ipaddr 192.0.2.20
 
 When the video stops, ndiclient normally waits for the source to come back
 and lets NDI reconnect by itself. Add `--retry-wait` with a number of seconds
-to start over instead: once "Waiting for video..." has been shown for that
-long, the connection is closed and the source is searched for and connected
-to again, as if ndiclient had just been started. The window stays open
-meanwhile (showing the wait image, if given), and a search that finds nothing
-is repeated until the source is back. This also finds a source again that
-restarted on another port, which a connection pinned with `--ipaddr` can't
-follow:
+to start over instead: once "Waiting for video..." has been shown for n
+seconds, the connection is closed and the source is searched for again. 
+The window remains open (showing the wait image, if given), 
+and a search that finds nothing is repeated until the source is back. 
+This option can help `ndiclient` find a source again that may restarted on 
+another port, such as when a connection pinned with `--ipaddr`:
 ```sh
 target/release/ndiclient --fullscreen --retry-wait 30 --ipaddr 192.0.2.20 STUDIO PGM
 ```
