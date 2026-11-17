@@ -175,8 +175,7 @@ packaging/build_deb.sh
   variable `SIGNING_PUBLIC_KEY` the signature is checked against. Keep
   them out of repository-level secrets and variables. `update_apt_repo.sh` keeps each distribution's
   packages in its own pool, `pool/<distribution>/main/`, so its index lists
-  only those (before bookworm, trixie's were in `pool/main/`; the script
-  moves them on its next trixie run). It keeps old packages and refuses to replace a `.deb` with different content, so a
+  only those. It keeps old packages and refuses to replace a `.deb` with different content, so a
   rebuild of one version needs a new changelog entry. It needs `apt-utils`
   and `gnupg`, the key id in `APT_SIGNING_KEY` and the repository's URL in
   `APT_REPO_URL`. It also writes `<distribution>.sources` to the

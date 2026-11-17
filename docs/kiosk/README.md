@@ -11,12 +11,12 @@ An example of how you might connect to a source on a remote
 device, restarting in case of failure. Useful when you want to
 launch `ndiclient` on startup, such as with `ndiclient.desktop`.
 
-Configuration is loaded from the `config` file, 
-which can be a symlink to yet another config if you need to 
-switch back and forth between devices or sources.
-For example:
+Configuration is loaded from `/opt/kiosk/config` (an example is
+the `config` file here), which can be a symlink to yet another
+config if you need to switch back and forth between devices or
+sources. For example:
 ```
-ln -f -s /home/pi/obs.conf /home/pi/config; killall -q ndiclient
+ln -f -s /opt/kiosk/obs.conf /opt/kiosk/config; killall -q ndiclient
 ```
 
 
