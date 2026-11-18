@@ -21,29 +21,35 @@ NDI® is a registered trademark of Vizrt NDI AB. Learn more at [ndi.video](https
 
 Run without arguments to list the NDI sources discovered on the network:
 ```sh
-target/release/ndiclient
+ndiclient
 ```
 
-Then pass the NDI device name and stream name of a source. NDI lists sources
-as `DEVICE (STREAM)`, so for the source `STUDIO (PGM)`:
+If there is an issue with mDNS or if you want to query over a specific interface,
+you can add `--ipaddr` to list the sources at a given address:
 ```sh
-target/release/ndiclient STUDIO PGM
+ndiclient --ipaddr 192.0.2.20
+```
+
+Pass the NDI device name and stream name of a source to begin sreaming. 
+NDI lists sources as `DEVICE (STREAM)`, so for the source `STUDIO (PGM)`:
+```sh
+ndiclient STUDIO PGM
 ```
 
 The stream name is optional. Without it, the first stream discovered on that
 device is shown:
 ```sh
-target/release/ndiclient STUDIO
+ndiclient STUDIO
 ```
 
 Add `--noaudio` to skip opening an audio device and ignore the audio feed:
 ```sh
-target/release/ndiclient --noaudio STUDIO PGM
+ndiclient --noaudio STUDIO PGM
 ```
 
 Add `--fullscreen` to show the video fullscreen instead of in a window:
 ```sh
-target/release/ndiclient --fullscreen STUDIO PGM
+ndiclient --fullscreen STUDIO PGM
 ```
 
 In fullscreen the mouse cursor is hidden, so the screen shows only the video
@@ -57,7 +63,7 @@ aspect ratio, and gives way to the video as soon as the video returns. Other
 image formats are rejected at start-up; convert them to BMP first (for
 example `ffmpeg -i standby.png standby.bmp`):
 ```sh
-target/release/ndiclient --fullscreen --wait-image standby.bmp STUDIO PGM
+ndiclient --fullscreen --wait-image standby.bmp STUDIO PGM
 ```
 
 If mDNS discovery can't be used to find the source, as in a split network
@@ -68,12 +74,7 @@ traffic to resume on the existing open port and interface rather than trying
 to negotiate a new one (and possibly switching interfaces to boot). This
 should prevent mDNS discovery failure for temporary connection hiccups:
 ```sh
-target/release/ndiclient --ipaddr 192.0.2.20 STUDIO "OBS PGM"
-```
-
-Without a device name, `--ipaddr` lists the sources at that address:
-```sh
-target/release/ndiclient --ipaddr 192.0.2.20
+ndiclient --ipaddr 192.0.2.20 STUDIO "OBS PGM"
 ```
 
 When the video stops, ndiclient normally waits for the source to come back
@@ -85,7 +86,7 @@ and a search that finds nothing is repeated until the source is back.
 This option can help `ndiclient` find a source again that may restarted on 
 another port, such as when a connection pinned with `--ipaddr`:
 ```sh
-target/release/ndiclient --fullscreen --retry-wait 30 --ipaddr 192.0.2.20 STUDIO PGM
+ndiclient --fullscreen --retry-wait 30 --ipaddr 192.0.2.20 STUDIO PGM
 ```
 
 The device name is matched ignoring case; the stream name must match exactly.
