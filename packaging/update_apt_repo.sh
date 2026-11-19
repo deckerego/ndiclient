@@ -24,16 +24,12 @@ PACKAGE_SUBDIR=$COMPONENT/n/ndiclient
 KEYRING_NAME=ndiclient-archive-keyring
 SIGNING_KEY="${APT_SIGNING_KEY:?APT_SIGNING_KEY must name the signing key}"
 REPO_URL="${APT_REPO_URL:?APT_REPO_URL must be the URL the repository is served at}"
-# Until bookworm was added, trixie was the only distribution and its pool was
-# pool/main. adopt_legacy_pool moves it to pool/trixie/main.
-LEGACY_DISTRIBUTION=trixie
 
 main() {
     REPO_DIR="$1"
     DISTRIBUTION="$2"
     POOL="pool/$DISTRIBUTION"
     shift 2
-    adopt_legacy_pool
     add_packages "$@"
     for architecture in $(pool_architectures); do
         write_package_index "$architecture"
@@ -42,14 +38,6 @@ main() {
     sign_release
     export_public_key
     write_sources_file
-}
-
-adopt_legacy_pool() {
-    legacy_pool="$REPO_DIR/pool/$COMPONENT"
-    if [ "$DISTRIBUTION" = "$LEGACY_DISTRIBUTION" ] && [ -d "$legacy_pool" ]; then
-        install -d "$REPO_DIR/$POOL"
-        mv "$legacy_pool" "$REPO_DIR/$POOL/$COMPONENT"
-    fi
 }
 
 add_packages() {

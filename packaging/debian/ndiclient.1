@@ -1,4 +1,4 @@
-.TH NDICLIENT 1 "October 2026" "ndiclient 0.1.0" "User Commands"
+.TH NDICLIENT 1 "November 2026" "ndiclient 1.0.0" "User Commands"
 .SH NAME
 ndiclient \- 
 command line NDI video monitor
@@ -21,7 +21,7 @@ command line NDI video monitor
 .RI [ stream-name ]
 .SH DESCRIPTION
 .B ndiclient
-uses mDNS or an NDI discovery server to find an NDI device and source on the 
+uses mDNS or direct IP lookup to find an NDI device and source on the 
 network, render its video stream in a desktop window or fullscreen and play
 its audio on the default sound output.
 .PP
@@ -53,7 +53,7 @@ Only use sources at this IPv4 or IPv6 address, and ask that address for its
 sources directly. Use this when mDNS does not work on your network, or to
 pick one network interface for a source that has several. The connection
 stays at that address: if it breaks, ndiclient waits for it to return to
-that open port rather open a new port or permit discovery on anothe interface.
+that open port rather open a new port or permit discovery.
 Without a device name, lists the sources at that address.
 .PP
 .BI \-\-wait\-image " file.bmp"
@@ -85,13 +85,14 @@ Success, also when listing finds no sources.
 No matching source was found within 10 seconds, or another error occurred.
 .SH ENVIRONMENT
 When run over SSH, export the desktop session first, for example
-.B XDG_RUNTIME_DIR=/run/user/$(id \-u)
-and
-.BR WAYLAND_DISPLAY=wayland\-0 .
+.B  DISPLAY=:0
 .SH EXAMPLES
 .PP
 .B ndiclient
 List the NDI sources on the network.
+.PP
+.B ndiclient \-\-ipaddr 192.0.2.20
+List the NDI sources at 192.0.2.20.
 .PP
 .B ndiclient STUDIO \(dqPGM\(dq
 Show the source
@@ -116,9 +117,6 @@ device if no data has been received for 30 seconds.
 Show the source
 .B "STUDIO (OBS PGM)"
 through its network interface at 192.0.2.20.
-.PP
-.B ndiclient \-\-ipaddr 192.0.2.20
-List the NDI sources at 192.0.2.20.
 .SH NOTES
 NDI\(rg is a registered trademark of Vizrt NDI AB. Learn more at
 .UR https://ndi.video/
