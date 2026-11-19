@@ -1,8 +1,7 @@
 # ndiclient - NDI Video Monitor for Linux
 
 An NDI video monitor intended for Raspbian-like distributions.
-I couldn't find another CLI that allowed me to stream NDI sources,
-so this is my attempt at bootstrapping one.
+Helpful when building wireless monitors or (kiosk solutions)[./docs/kiosk].
 
 NDI® is a registered trademark of Vizrt NDI AB. Learn more at [ndi.video](https://ndi.video/).
 
@@ -13,7 +12,6 @@ NDI® is a registered trademark of Vizrt NDI AB. Learn more at [ndi.video](https
 
 ## Limitations
 
-*  Right now the receiver requests the highest bandwidth feed available, low bandwidth mode is not supported.
 *  Right now the target platform is the Raspberry Pi AArch64 platform and tested on an RPi 5 4GB. In theory this arm64 package could work on the RPi 3 or newer (including the RPi Zero 2), but this hasn't been validated yet. Other Linux distros or platforms are currently not available.
 
 
@@ -117,54 +115,13 @@ Later releases then arrive with `sudo apt upgrade`.
 
 ## Performance Hacks
 
-Turning off wifi power saving may help a bit with packet loss. 
-Run `sudo iw dev wlan0 set power_save off` to try it out.
-
+* Turning off wifi power saving may help a bit with packet loss. Run `sudo iw dev wlan0 set power_save off` to try it out.
+* Disable swap to avoid wear & tear on your SD card by editing `/etc/rpi/swap.conf` and setting `FixedSizeMiB=0`.
+* Use wired connections whenever possible.
 
 ## Building & Packaging
 
-You can also build from source if you are keen to...
-
-### Building from Source
-
-Currently `ndiclient` requires `libsdl2-dev` and the NDI SDK available at
-[https://ndi.video/for-developers/ndi-sdk/](https://ndi.video/for-developers/ndi-sdk/).
-The environment var `NDI_SDK_DIR` can be set to the path of the NDI SDK,
-it defaults to `/home/pi/NDI SDK for Linux` otherwise.
-
-After those are installed the build should obey Cargo:
-```sh
-cargo build --release
-```
-
-### Testing
-
-A test pattern sender is available in the `tools/` directory for local integration testing.
-
-Unit testing can be performed using:
-```sh
-cargo test
-```
-
-### Creating Debian Packages
-
-To build a `.deb` for the local machine's architecture, run:
-```sh
-packaging/build_deb.sh
-```
-
-This needs `dpkg-dev` (for `dpkg-shlibdeps`) in addition to the build
-requirements above. The package lands in `target/debian/` and installs with:
-```sh
-sudo apt install ./target/debian/ndiclient_0.3.0-1+deb13_arm64.deb
-```
-
-The package version comes from `packaging/debian/changelog` and must match
-the version in `Cargo.toml`. `+deb13` (or `+deb12`) names the Debian release
-it was built on. The package installs `/usr/bin/ndiclient` and
-its man page, and bundles the NDI runtime
-library privately in `/usr/lib/ndiclient`, as the NDI SDK documentation
-asks. It recommends `avahi-daemon`, which NDI discovery uses for mDNS.
+See [BUILD.md](./BUILD.md) for instructions on how to build & package ndiclient.
 
 
 ## License
